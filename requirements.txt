@@ -1,0 +1,12 @@
+# 문서 처리용
+python-pptx #ppt 처리
+pymupdf # pdf 처리
+
+# AI 연결
+langchain_community
+langchain-ollama
+
+
+# 웹 화면 만들기
+streamlit
+frontend
