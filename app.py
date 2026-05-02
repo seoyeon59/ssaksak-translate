@@ -143,9 +143,11 @@ def process_pdf(input_path, output_path, dept):
     doc = fitz.open(input_path)
     total_pages = len(doc)
     progress_bar = st.progress(0)
+    status_text = st.empty()
     font_path = "C:/Windows/Fonts/malgun.ttf"
 
     for i, page in enumerate(doc):
+        status_text.text(f"슬라이드 {i + 1}/{total_pages} 번역 중...")
         # 문장 단위 재구성을 위한 텍스트 추출 방식 개선 가능
         blocks = page.get_text("dict")["blocks"]
 
@@ -157,7 +159,8 @@ def process_pdf(input_path, output_path, dept):
                 rect = fitz.Rect(b["bbox"])
                 f_size = b["lines"][0]["spans"][0]["size"]
                 # 폰트 이식성 고려
-                page.insert_text((rect[0], rect[3] + 2), translated,
+                # rect[3] + n : 글자 위치
+                page.insert_text((rect[0], rect[3] + 7), translated,
                                  fontname="ko", fontfile=font_path, fontsize=f_size * 0.5, color=(0, 0.2, 0.6))
         progress_bar.progress((i + 1) / total_pages)
     doc.save(output_path)
