@@ -1,6 +1,7 @@
 # 문서 처리용
 python-pptx #ppt 처리
 pymupdf # pdf 처리
+FPDF
 
 # AI 연결
 langchain_community
