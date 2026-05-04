@@ -9,6 +9,7 @@ from pptx.util import Pt
 from pptx.dml.color import RGBColor
 from langchain_ollama import OllamaLLM
 
+
 # --- [1. 모델 및 캐시 설정] ---
 # 로컬 모델의 특성을 고려해 가장 간결하고 명확한 설정 유지
 llm = OllamaLLM(model="llama3", temperature=0)
@@ -50,6 +51,7 @@ def is_english_content(text):
     """알파벳이 포함되어 있다면 무조건 번역 시도 (누락 방지)"""
     return any(c.isalpha() for c in text)
 
+
 def translate_single(text, department):
     """불필요한 설명 없이 '순수 해석'만 출력하도록 프롬프트 최적화"""
     cleaned = clean_text_logic(text)
@@ -68,18 +70,21 @@ def translate_single(text, department):
 
     # [프롬프트]
     prompt = (
-        f"Instruction: Translate the following {department} lecture text into natural Korean.\n"
-        f"Rules:\n"
-        f"- Output ONLY the translated Korean text.\n"
-        f"- Keep all original punctuation marks like '?', '!', and '()' if they exist.\n"
-        f"3. Do NOT add any extra explanations or introductory remarks.\n"
+        f"You are a professional translator for {department} students. \n"
+        f"Your ONLY job is to output the Korean translation of the given text.\n"
+        f"Constraint 1: Output ONLY the translated text without any explanation or introduction.\n"
+        f"Constraint 2: Maintain original punctuation (? ! ()).\n"
+        f"Constraint 3: Do NOT add any numbering like '3.' or 'Translation:'.\n"
+        f"Constraint 4: NO additional explanations, NO intros, NO outros.\n"
+        f"Constraint 5: NEVER explain, NEVER introduce, NEVER say 'Here is the translation'. "
+        f"Constraint 6: Output the translation and NOTHING ELSE.\n\n"
+        f"{glossary_hint}\n"
         f"English: {cleaned}\n"
         f"Korean:"
     )
 
     try:
         translated = str(llm.invoke(prompt)).strip()
-
         # [누락 방지] 모델 응답이 없으면 원문 반환
         if not translated: return text
 
@@ -87,13 +92,13 @@ def translate_single(text, department):
         # 모델이 "Sure, here is the translation:" 등을 붙이는 경우 제거
         translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:)', '', translated, flags=re.IGNORECASE).strip()
 
-        # [과해석 방지] 줄바꿈이 있더라도 너무 짧게 잘리지 않도록 검사
+        # 줄바꿈 처리의 순서
         lines = [line.strip() for line in translated.split('\n') if line.strip()]
         if lines:
             # 첫 번째 줄이 너무 짧거나 모델의 잡담 같으면 두 번째 줄까지 고려
             translated = lines[0]
 
-            # 최종 세척 (불필요한 따옴표만 제거)
+        # 최종 세척 (불필요한 따옴표만 제거)
         translated = re.sub(r'^[" \']+|[" \']+$', '', translated).strip()
 
         # 만약 클리닝 후 결과가 너무 짧아졌다면(오류 가능성) 원문 반환
@@ -106,6 +111,7 @@ def translate_single(text, department):
     except Exception as e:
         # 에러 발생 시 사용자 알림
         st.error(f"Ollama 연결 확인 필요: {e}")
+        st.info("해결책: 터미널에서 'ollama serve'를 다시 실행하거나 GPU 드라이버(CUDA) 설정을 확인하세요.")
         return text
 
 # --- [3. 문서 처리 함수 (진행 바 완벽 적용)] ---
@@ -151,19 +157,24 @@ def process_pdf(input_path, output_path, dept):
     for i, page in enumerate(doc):
         status_text.text(f"슬라이드 {i + 1}/{total_pages} 번역 중...")
         # 문장 단위 재구성을 위한 텍스트 추출 방식 개선 가능
-        blocks = page.get_text("dict")["blocks"]
+        blocks = page.get_text("blocks")
 
         for b in blocks:
-            if b["type"] != 0: continue
-            full_text = " ".join(["".join([s["text"] for s in l["spans"]]) for l in b["lines"]]).strip()
+            # b[4]는 해당 블록의 텍스트 내용입니다.
+            full_text = b[4].replace("\n", " ").strip()
+
+            if len(full_text) < 2 or not is_english_content(full_text):
+                continue
+
             translated = translate_single(full_text, dept)
+
             if translated and translated != full_text:
-                rect = fitz.Rect(b["bbox"])
-                f_size = b["lines"][0]["spans"][0]["size"]
-                # 폰트 이식성 고려
-                # rect[3] + n : 글자 위치
-                page.insert_text((rect[0], rect[3] + 7), translated,
-                                 fontname="ko", fontfile=font_path, fontsize=f_size * 0.5, color=(0, 0.2, 0.6))
+                # b[0]~b[3]은 블록의 좌표(x0, y0, x1, y1)입니다.
+                # 원문 바로 아래에 번역문을 삽입
+                page.insert_text((b[0], b[3] + 5), translated,
+                                 fontname="ko", fontfile=font_path,
+                                 fontsize=9, color=(0, 0.2, 0.6))
+
         progress_bar.progress((i + 1) / total_pages)
     doc.save(output_path)
     doc.close()
