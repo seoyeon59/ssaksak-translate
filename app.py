@@ -23,12 +23,14 @@ GLOSSARY = {
     "Nursing": {"Diagnosis": "진단", "Intervention": "중재", "Outcome": "결과"}
 }
 
-# 폰트 경로 문제 해결 (프로젝트 폴더 내 폰트 사용 권장)
-# 시스템에 폰트가 없을 경우를 대비한 기본 경로 설정
-FONT_PATH = "C:/Windows/Fonts/malgun.ttf"
-if not os.path.exists(FONT_PATH):
-    FONT_PATH = None # NanumGothic.ttf 등을 프로젝트에 포함시킨 후 경로 지정 [cite: 15, 16]
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+FONT_PATH = os.path.join(current_dir, "fonts", "NanumGothic.ttf")
+
+# 폰트가 없을 경우의 예외 처리
+if not os.path.exists(FONT_PATH):
+    # 리눅스 환경 대비 (Docker 배포용)
+    FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
 
 # --- [2. 핵심 엔지니어링 유틸리티] ---
 
@@ -274,4 +276,10 @@ with tab1: run_translation(st.file_uploader("PPTX 업로드 (50p 이내)", type=
 with tab2: run_translation(st.file_uploader("PDF 업로드 (50p 이내)", type="pdf", key="p2"), "PDF")
 
 st.divider()
-st.caption("Powered by Llama3 & PyMuPDF | EduTrans Project")
+st.markdown("""
+    <div style="text-align: center; color: gray; font-size: 0.8rem;">
+        <p>Built with <b>Meta Llama 3</b> | Powered by PyMuPDF & Ollama</p>
+        <p>Meta Llama 3 is licensed under the Meta Llama 3 Community License. 
+        Copyright © Meta Platforms, Inc. All Rights Reserved.</p>
+    </div>
+""", unsafe_allow_html=True)
