@@ -60,7 +60,6 @@ with st.sidebar:
 
     # LLM 인스턴스 생성 (선택된 모델 적용)
     llm = OllamaLLM(model=selected_model, temperature=0,
-                    stop=['\n', 'User:', 'English: '],
                     num_predict=150)
 
     st.divider()
@@ -132,38 +131,57 @@ def detect_major_from_text(text):
 
 
 def translate_single(text, department):
-    """기존의 용어 사전 및 '순수 해석' 프롬프트 유지"""
+    """기존의 용어 사전 및 모델별 최적화 프롬프트 통합본"""
     cleaned = clean_text_logic(text)
     if len(cleaned) < 1: return text
 
+    # 1. 캐시 확인
     norm_key = normalize_for_cache(cleaned)
     if norm_key in st.session_state['translation_cache']:
         return st.session_state['translation_cache'][norm_key]
 
+    # 2. 용어 사전 생성
     glossary_hint = ""
     if department in GLOSSARY:
         terms = [f"{k}:{v}" for k, v in GLOSSARY[department].items()]
-        glossary_hint = f"(용어 강제: {', '.join(terms)})"
+        glossary_hint = f"(필수 용어 참고: {', '.join(terms)})"
 
-    prompt = (
-        f"You are a professional translator for {department} students. "
-        f"Your ONLY job is to output the Korean translation of the given text. "
-        f"STRICT RULE: NEVER explain. Output ONLY the translation.\n\n"
-        f"{glossary_hint}\nEnglish: {cleaned}\nKorean:"
-    )
+    # 3. 모델별 프롬프트 분기 (들여쓰기 수정: if 블록 밖으로 꺼냄)
+    if selected_model == "llama3":
+        prompt = (
+            f"You are a professional {department} translator. "
+            f"Translate the following text to Korean. Output ONLY the translation.\n"
+            f"{glossary_hint}\n" # 용어 사전 포함
+            f"English: {cleaned}\n"
+            f"Korean:"
+        )
+        stop_param = ["\n"]
+    else:
+        # Phi-3: 극도로 단순화된 지시 + 예시(Few-shot) 추가 권장
+        prompt = (
+            f"Instruction: Translate to Korean. No explanation. ONLY translation.\n"
+            f"Context: {department}\n"
+            f"{glossary_hint}\n" # 용어 사전 포함
+            f"Input: {cleaned}\n"
+            f"Output:"
+        )
+        stop_param = ["\n", "Input:"]
 
     try:
-        translated = str(llm.invoke(prompt)).strip()
+        # 4. LLM 호출 (stop 설정으로 사족 원천 차단)
+        translated = str(llm.invoke(prompt, stop=stop_param)).strip()
 
         if not translated or translated == cleaned: return ""
 
-        # Phi-3가 줄바꿈 후 사족을 붙이는 경우 쳇 줄만 가져오기
+        # 5. 후처리 (사족 및 잡설 제거)
+        # 줄바꿈이 생겼을 경우 첫 줄만 취함 (Phi-3 방어용)
         translated = translated.split('\n')[0].strip()
 
-        # 모델 잡설 제거 로직
-        translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:)', '', translated, flags=re.IGNORECASE).strip()
+        # 불필요한 접두어 제거
+        translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:|Output:)', '', translated, flags=re.IGNORECASE).strip()
         translated = re.sub(r'^[" \']+|[" \']+$', '', translated).strip()
 
+        # 6. 캐시 저장 및 반환
         st.session_state['translation_cache'][norm_key] = translated
         return translated
 
