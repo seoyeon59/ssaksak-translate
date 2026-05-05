@@ -22,7 +22,12 @@ if 'detected_dept' not in st.session_state:
 
 # 전공별 용어 사전 (사용자 기존 코드 유지)
 GLOSSARY = {
-    "Data Science": {"Deep Learning": "딥러닝", "Inference": "추론", "Backpropagation": "역전파"},
+    "Data Science": {"Deep Learning": "딥러닝", "Inference": "추론", "Backpropagation": "역전파",
+                     "Data Science": "데이터사이언스", "Programming": "프로그래밍", "Domain": "도메인",
+                     "algorithms": "알고리즘", "structured": "정형", "unstructured": "비정형",
+                     "processes": "프로세스", "method": "방법", "multi-disciplinary": "다분야",
+                     "Key Components": "주요 구성 요소", "Exploratory Data Analysis": "탐색적 데이터 분석",
+                     "insights": "인사이트"},
     "Business Administration": {"Asset": "자산", "Equity": "자본", "Liability": "부채"},
     "Nursing": {"Diagnosis": "진단", "Intervention": "중재", "Outcome": "결과"}
 }
@@ -146,7 +151,7 @@ def translate_single(text, department):
         terms = [f"{k}:{v}" for k, v in GLOSSARY[department].items()]
         glossary_hint = f"(필수 용어 참고: {', '.join(terms)})"
 
-    # 3. 모델별 프롬프트 분기 (들여쓰기 수정: if 블록 밖으로 꺼냄)
+    # 3. 모델별 프롬프트 분기
     if selected_model == "llama3":
         prompt = (
             f"Translate the following {department} lecture text to Korean. "
@@ -160,15 +165,13 @@ def translate_single(text, department):
     else:
         # Phi-3
         prompt = (
-            f"Instruction: Translate the English input into Korean Hangul. No Chinese characters. No explanation.\n"
-            f"Context: {department} lecture note\n"
-            f"{glossary_hint}\n"
-            f"Example 1\nInput: Introduction to Data Science\nOutput: 데이터 사이언스 입문\n\n"
-            f"Example 2\nInput: Key Components\nOutput: 핵심 구성 요소\n\n"
+            f"Instruction: 이 텍스트는 {department} 관련 강의 자료이다. 용어 사전을 참고하여 오직 한국어 번역만 수행하라.\n"
+            f"Glossary: {glossary_hint}\n"
+            f"Rule: No talk. No English. No Chinese characters. Output ONLY Korean Hangul.\n"
             f"Input: {cleaned}\n"
             f"Output:"
         )
-        stop_param = ["English:", "\n", "Input:"]
+        stop_param = ["English:", "\n"]
 
     try:
         # 4. LLM 호출 (stop을 []로 비워서 끊김 현상 방지)
