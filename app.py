@@ -8,6 +8,8 @@ from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
 from langchain_ollama import OllamaLLM
+import platform
+
 
 # --- [1. 초기 설정 및 모델 엔진] ---
 st.set_page_config(page_title="TransSlide AI - 로컬 전공 번역기", layout="wide", page_icon="🎓")
@@ -25,9 +27,30 @@ GLOSSARY = {
     "Nursing": {"Diagnosis": "진단", "Intervention": "중재", "Outcome": "결과"}
 }
 
+
+# 운영체제별 기본 폰트 경로 설정
+def get_system_font():
+    os_name = platform.system()
+    if os_name == "Windows":
+        # Windows의 경우 '맑은 고딕' 기본 경로
+        path = "C:/Windows/Fonts/malgun.ttf"
+        name = "Malgun Gothic"
+    elif os_name == "Darwin":  # macOS
+        path = "/System/Library/Fonts/Supplemental/AppleGothic.ttf"
+        name = "AppleGothic"
+    else:  # Linux (Docker/Server)
+        path = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
+        name = "NanumGothic"
+
+    # 만약 지정된 경로에 파일이 없다면 라이브러리 내장 폰트나 시스템 경로 재탐색 필요
+    return path, name
+
+FONT_FILE_PATH, FONT_NAME = get_system_font()
+
+
 # --- [2. 사이드바 UI: 엔진 및 전공 설정] ---
 with st.sidebar:
-    st.header("⚙️ 엔진 설정 (운영비 0원)")
+    st.header("⚙️ 엔진 설정")
     selected_model = st.selectbox(
         "사용할 AI 모델 선택",
         ["phi3", "llama3"],
@@ -36,7 +59,9 @@ with st.sidebar:
     )
 
     # LLM 인스턴스 생성 (선택된 모델 적용)
-    llm = OllamaLLM(model=selected_model, temperature=0)
+    llm = OllamaLLM(model=selected_model, temperature=0,
+                    stop=['\n', 'User:', 'English: '],
+                    num_predict=150)
 
     st.divider()
     st.header("🏫 전공 및 과목 설정")
@@ -129,7 +154,11 @@ def translate_single(text, department):
 
     try:
         translated = str(llm.invoke(prompt)).strip()
+
         if not translated or translated == cleaned: return ""
+
+        # Phi-3가 줄바꿈 후 사족을 붙이는 경우 쳇 줄만 가져오기
+        translated = translated.split('\n')[0].strip()
 
         # 모델 잡설 제거 로직
         translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:)', '', translated, flags=re.IGNORECASE).strip()
@@ -137,6 +166,7 @@ def translate_single(text, department):
 
         st.session_state['translation_cache'][norm_key] = translated
         return translated
+
     except Exception as e:
         st.error(f"Ollama 연결 확인 필요: {e}")
         return text
@@ -150,7 +180,7 @@ def process_pptx(input_path, output_path, dept, auto_detect_flag):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # [추가] 자동 전공 감지 실행
+    # 자동 전공 감지 실행
     if auto_detect_flag and total_slides > 0:
         first_text = ""
         for shape in prs.slides[0].shapes:
@@ -169,39 +199,85 @@ def process_pptx(input_path, output_path, dept, auto_detect_flag):
 
                     translated = translate_single(original_text, dept)
                     if translated and translated != original_text:
+                        # 원문 아래 새 줄 추가
                         run = paragraph.add_run()
                         run.text = f"\n{translated}"
+
+                        # ----- 폰트 상세 지정 -------
+                        run.font.name = FONT_NAME
                         run.font.size = Pt(10)
                         run.font.color.rgb = RGBColor(0, 102, 204)
         progress_bar.progress((i + 1) / total_slides)
+
     prs.save(output_path)
     status_text.text("✅ PPT 번역 완료!")
 
 
-def process_pdf(input_path, output_path, dept):
+def process_pdf(input_path, output_path, dept, auto_detect_flag):
     doc = fitz.open(input_path)
     total_pages = len(doc)
     progress_bar = st.progress(0)
     status_text = st.empty()
-    font_path = "C:/Windows/Fonts/malgun.ttf"  # Windows 기준
 
+    # [1] 전공 자동 감지 로직
+    if auto_detect_flag and total_pages > 0:
+        status_text.text("🧐 첫 페이지 분석 중... (전공 감지)")
+        first_page = doc[0]
+        # 첫 페이지의 모든 텍스트를 합쳐서 감지 함수로 전달
+        first_text = " ".join([b[4] for b in first_page.get_text("blocks") if b[4].strip()])
+
+        if first_text:
+            st.session_state['detected_dept'] = detect_major_from_text(first_text)
+            dept = st.session_state['detected_dept']
+
+    # [2] 페이지별 번역 시작
     for i, page in enumerate(doc):
-        status_text.text(f"페이지 {i + 1}/{total_pages} 번역 중...")
-        blocks = page.get_text("blocks")
-        for b in blocks:
-            full_text = b[4].replace("\n", " ").strip()
-            if len(full_text) < 2 or not is_english_content(full_text): continue
+        status_text.text(f"📄 페이지 {i + 1}/{total_pages} 번역 중... (전공: {dept})")
 
-            translated = translate_single(full_text, dept)
-            if translated and translated.strip() != "":
-                # 텍스트 바로 아래(b[3]+5)에 삽입
-                page.insert_text((b[0], b[3] + 5), translated,
-                                 fontname="ko", fontfile=font_path,
-                                 fontsize=9, color=(0, 0.2, 0.6))
+        # 블록 단위로 텍스트 추출 (문단 인식에 유리)
+        blocks = page.get_text("blocks")
+
+        for b in blocks:
+            # b[4]는 텍스트 내용, b[0]~b[3]은 좌표값 (좌, 상, 우, 하)
+            raw_text = b[4].strip()
+
+            # 번역 제외 조건: 너무 짧거나 영어 알파벳이 없는 경우, 혹은 이미지 블록(비텍스트)
+            if len(raw_text) < 3 or not is_english_content(raw_text):
+                continue
+
+            # 텍스트 내 불필요한 줄바꿈 제거 (문장 연결성 확보)
+            cleaned_text = raw_text.replace("\n", " ").strip()
+
+            # 번역 실행
+            translated = translate_single(cleaned_text, dept)
+
+            # 번역 성공 시 원문 아래에 삽입
+            if translated and translated != cleaned_text:
+                # 좌표 조정: 원문 하단(b[3])에서 7포인트 아래에 삽입 (+5보다 조금 더 여유를 줌)
+                # b[0]는 원문의 왼쪽 시작점 유지
+                insert_x = b[0]
+                insert_y = b[3] + 7
+
+                try:
+                    page.insert_text(
+                        (insert_x, insert_y),
+                        translated,
+                        fontname="ko",  # 번역 전용 폰트 설정
+                        fontfile=FONT_FILE_PATH,
+                        fontsize=8,  # 원문보다 약간 작게 (가독성)
+                        color=(0, 0.4, 0.8)  # 부드러운 파란색
+                    )
+                except Exception as e:
+                    # 특정 페이지 폰트 오류 시 스킵
+                    continue
+
+        # 진행 바 업데이트
         progress_bar.progress((i + 1) / total_pages)
+
+    # 결과 저장
     doc.save(output_path)
     doc.close()
-    status_text.text("✅ PDF 번역 완료!")
+    status_text.text(f"✅ PDF 번역 완료! (적용 전공: {dept})")
 
 
 # --- [5. Streamlit UI 메인 구성 (기존 스타일 유지)] ---
@@ -250,5 +326,12 @@ def run_translation(uploaded_file, mode):
 with tab1: run_translation(st.file_uploader("PPTX 업로드", type="pptx", key="p1"), "PPTX")
 with tab2: run_translation(st.file_uploader("PDF 업로드", type="pdf", key="p2"), "PDF")
 
+
 st.divider()
-st.markdown("<p style='text-align: center; color: gray;'>Powered by Ollama & Streamlit</p>", unsafe_allow_html=True)
+st.markdown("""
+    <div style="text-align: center; color: gray; font-size: 0.8rem;">
+        <p><b>Built with Meta Llama 3</b> | Powered by Microsoft Phi-3</p>
+        <p>Meta Llama 3 is licensed under the Meta Llama 3 Community License. Copyright © Meta Platforms, Inc.</p>
+        <p>Phi-3 is licensed under the MIT License. Copyright © Microsoft Corporation.</p>
+    </div>
+    """, unsafe_allow_html=True)
