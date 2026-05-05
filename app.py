@@ -149,42 +149,60 @@ def translate_single(text, department):
     # 3. 모델별 프롬프트 분기 (들여쓰기 수정: if 블록 밖으로 꺼냄)
     if selected_model == "llama3":
         prompt = (
-            f"You are a professional {department} translator. "
-            f"Translate the following text to Korean. Output ONLY the translation.\n"
-            f"{glossary_hint}\n" # 용어 사전 포함
+            f"Translate the following {department} lecture text to Korean. "
+            f"Output ONLY the translated text without any explanation.\n"
+            f"{glossary_hint}\n"
+            f"Input: lecture -> Output: 강의\n"
+            f"Input: Key Components -> Output: 주요 구성 요소"
             f"English: {cleaned}\n"
             f"Korean:"
         )
-        stop_param = ["\n"]
+        stop_param = []
     else:
-        # Phi-3: 극도로 단순화된 지시 + 예시(Few-shot) 추가 권장
+        # Phi-3
         prompt = (
-            f"Instruction: Translate to Korean. No explanation. ONLY translation.\n"
-            f"Context: {department}\n"
-            f"{glossary_hint}\n" # 용어 사전 포함
+            f"Instruction: Translate the English input into Korean Hangul. No Chinese characters. No explanation.\n"
+            f"Context: {department} lecture note\n"
+            f"{glossary_hint}\n"
+            f"Example 1\nInput: Introduction to Data Science\nOutput: 데이터 사이언스 입문\n\n"
+            f"Example 2\nInput: Key Components\nOutput: 핵심 구성 요소\n\n"
             f"Input: {cleaned}\n"
             f"Output:"
         )
-        stop_param = ["\n", "Input:"]
+        stop_param = ["English:", "\n", "Input:"]
 
     try:
-        # 4. LLM 호출 (stop 설정으로 사족 원천 차단)
+        # 4. LLM 호출 (stop을 []로 비워서 끊김 현상 방지)
         translated = str(llm.invoke(prompt, stop=stop_param)).strip()
 
         if not translated or translated == cleaned: return ""
 
-        # 5. 후처리 (사족 및 잡설 제거)
-        # 줄바꿈이 생겼을 경우 첫 줄만 취함 (Phi-3 방어용)
-        translated = translated.split('\n')[0].strip()
+        # 5. 후처리 (모델이 굳이 말을 덧붙였을 경우만 정리)
+        # 만약 모델이 "Here is the translation:" 같은 말을 맨 앞에 붙였다면 제거
+        trash_phrases = [
+            r'^here is the translation:?', r'^translated text:?', r'^korean translation:?',
+            r'^번역:', r'^결과:', r'^해석:', r'^output:', r'^korean:'
+        ]
+        for phrase in trash_phrases:
+            translated = re.sub(phrase, '', translated, flags=re.IGNORECASE).strip()
 
-        # 불필요한 접두어 제거
-        translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:|Output:)', '', translated, flags=re.IGNORECASE).strip()
+        # 제목 같은 짧은 문장은 줄바꿈이 없으므로 괜찮지만, 긴 문장은 잘릴 수 있음
+        lines = [l.strip() for l in translated.split('\n') if l.strip()]
+        if lines:
+            # 첫 번째 줄이 너무 짧거나 기호뿐이면 두 번째 줄까지 확인 (Llama-3 숫자 누락 방지)
+            translated = lines[0] if len(lines[0]) > 1 else " ".join(lines[:2])
+
+        # 불필요한 기호 제거
         translated = re.sub(r'^[" \']+|[" \']+$', '', translated).strip()
+
+        # 누락 방지 : 번역 결과가 너무 짧고 기호만 있다면 원문 반환 고려
+        if len(translated) < 1: return text
 
         # 6. 캐시 저장 및 반환
         st.session_state['translation_cache'][norm_key] = translated
         return translated
 
+    # 에러 나면 에러 출력
     except Exception as e:
         st.error(f"Ollama 연결 확인 필요: {e}")
         return text
@@ -331,7 +349,7 @@ def run_translation(uploaded_file, mode):
                     if mode == "PPTX":
                         process_pptx(in_path, out_path, manual_dept, auto_detect)
                     else:
-                        process_pdf(in_path, out_path, manual_dept)
+                        process_pdf(in_path, out_path, manual_dept, auto_detect)
                 st.success("✅ 처리가 완료되었습니다!")
                 with open(out_path, "rb") as f:
                     st.download_button("💾 결과 다운로드", f, file_name=f"translated_{uploaded_file.name}")
