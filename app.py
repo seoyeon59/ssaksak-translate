@@ -153,7 +153,6 @@ def translate_single(text, department):
             f"Output ONLY the translated text without any explanation.\n"
             f"{glossary_hint}\n"
             f"Input: lecture -> Output: 강의\n"
-            f"Input: Key Components -> Output: 주요 구성 요소"
             f"English: {cleaned}\n"
             f"Korean:"
         )
