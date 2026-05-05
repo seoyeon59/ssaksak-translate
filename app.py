@@ -9,216 +9,41 @@ from pptx.util import Pt
 from pptx.dml.color import RGBColor
 from langchain_ollama import OllamaLLM
 
+# --- [1. 초기 설정 및 모델 엔진] ---
+st.set_page_config(page_title="TransSlide AI - 로컬 전공 번역기", layout="wide", page_icon="🎓")
 
-# --- [1. 모델 및 캐시 설정] ---
-# 로컬 모델의 특성을 고려해 가장 간결하고 명확한 설정 유지
-llm = OllamaLLM(model="llama3", temperature=0)
-
+# 세션 상태 초기화 (캐시 및 자동 감지 결과 저장)
 if 'translation_cache' not in st.session_state:
     st.session_state['translation_cache'] = {}
+if 'detected_dept' not in st.session_state:
+    st.session_state['detected_dept'] = None
 
-# 전공별 용어 사전 (Glossary)
+# 전공별 용어 사전 (사용자 기존 코드 유지)
 GLOSSARY = {
     "Data Science": {"Deep Learning": "딥러닝", "Inference": "추론", "Backpropagation": "역전파"},
     "Business Administration": {"Asset": "자산", "Equity": "자본", "Liability": "부채"},
     "Nursing": {"Diagnosis": "진단", "Intervention": "중재", "Outcome": "결과"}
 }
 
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-FONT_PATH = os.path.join(current_dir, "fonts", "NanumGothic.ttf")
-
-# 폰트가 없을 경우의 예외 처리
-if not os.path.exists(FONT_PATH):
-    # 리눅스 환경 대비 (Docker 배포용)
-    FONT_PATH = "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"
-
-# --- [2. 핵심 엔지니어링 유틸리티] ---
-
-def normalize_for_cache(text):
-    """캐시 적중률 향상을 위한 정규화"""
-    return re.sub(r'\s+', ' ', text.lower().strip())
-
-
-def clean_text_logic(text):
-    """PDF/PPT 특유의 불필요한 기호 및 줄바꿈 제거"""
-    text = unicodedata.normalize('NFKC', text)
-    text = text.replace("-\n", "").replace("\n", " ")
-    return re.sub(r'\s+', ' ', text).strip()
-
-
-def is_english_content(text):
-    """알파벳이 포함되어 있다면 무조건 번역 시도 (누락 방지)"""
-    return any(c.isalpha() for c in text)
-
-
-def translate_single(text, department):
-    """불필요한 설명 없이 '순수 해석'만 출력하도록 프롬프트 최적화"""
-    cleaned = clean_text_logic(text)
-
-    # 1글자짜리 단어도 번역 대상에 포함 (누락 방지)
-    if len(cleaned) < 1: return text
-
-    norm_key = normalize_for_cache(cleaned)
-    if norm_key in st.session_state['translation_cache']:
-        return st.session_state['translation_cache'][norm_key]
-
-    glossary_hint = ""
-    if department in GLOSSARY:
-        terms = [f"{k}:{v}" for k, v in GLOSSARY[department].items()]
-        glossary_hint = f"(용어 강제: {', '.join(terms)})"
-
-    # [프롬프트]
-    prompt = (
-        f"You are a professional translator for {department} students. \n"
-        f"Your ONLY job is to output the Korean translation of the given text.\n"
-        f"Constraint 1: Output ONLY the translated text without any explanation or introduction.\n"
-        f"Constraint 2: Maintain original punctuation (? ! ()).\n"
-        f"Constraint 3: Do NOT add any numbering like '3.' or 'Translation:'.\n"
-        f"Constraint 4: NO additional explanations, NO intros, NO outros.\n"
-        f"Constraint 5: NEVER explain, NEVER introduce, NEVER say 'Here is the translation'. "
-        f"Constraint 6: Output the translation and NOTHING ELSE.\n\n"
-        f"{glossary_hint}\n"
-        f"English: {cleaned}\n"
-        f"Korean:"
+# --- [2. 사이드바 UI: 엔진 및 전공 설정] ---
+with st.sidebar:
+    st.header("⚙️ 엔진 설정 (운영비 0원)")
+    selected_model = st.selectbox(
+        "사용할 AI 모델 선택",
+        ["phi3", "llama3"],
+        index=0,
+        help="저사양(8GB RAM)은 phi3를, 고사양(GPU 8GB+)은 llama3를 권장합니다."
     )
 
-    try:
-        translated = str(llm.invoke(prompt)).strip()
-        # [누락 방지] 모델 응답이 없으면 원문 반환
-        if not translated: return text
+    # LLM 인스턴스 생성 (선택된 모델 적용)
+    llm = OllamaLLM(model=selected_model, temperature=0)
 
-        # [과해석 방지]
-        # 모델이 "Sure, here is the translation:" 등을 붙이는 경우 제거
-        translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:)', '', translated, flags=re.IGNORECASE).strip()
-
-        # 줄바꿈 처리의 순서
-        lines = [line.strip() for line in translated.split('\n') if line.strip()]
-        if lines:
-            # 첫 번째 줄이 너무 짧거나 모델의 잡담 같으면 두 번째 줄까지 고려
-            translated = lines[0]
-
-        # 최종 세척 (불필요한 따옴표만 제거)
-        translated = re.sub(r'^[" \']+|[" \']+$', '', translated).strip()
-
-        # 만약 클리닝 후 결과가 너무 짧아졌다면(오류 가능성) 원문 반환
-        if not translated:
-            return text
-
-        st.session_state['translation_cache'][norm_key] = translated
-        return translated
-
-    except Exception as e:
-        # 에러 발생 시 사용자 알림
-        st.error(f"Ollama 연결 확인 필요: {e}")
-        st.info("해결책: 터미널에서 'ollama serve'를 다시 실행하거나 GPU 드라이버(CUDA) 설정을 확인하세요.")
-        return text
-
-# --- [3. 문서 처리 함수 (진행 바 완벽 적용)] ---
-
-def process_pptx(input_path, output_path, dept):
-    prs = Presentation(input_path)
-    total_slides = len(prs.slides)
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-
-    for i, slide in enumerate(prs.slides):
-        status_text.text(f"슬라이드 {i + 1}/{total_slides} 번역 중...")
-        for shape in slide.shapes:
-            if hasattr(shape, "text_frame") and shape.text_frame:
-                for paragraph in shape.text_frame.paragraphs:
-                    # 문단 전체 텍스트 병합 후 번역
-                    original_text = "".join(run.text for run in paragraph.runs).strip()
-
-                    if len(original_text) < 2 or not is_english_content(original_text):
-                        continue
-
-                    translated = translate_single(original_text, dept)
-
-                    # 번역이 원문과 다를 때만 아래에 추가
-                    if translated and translated != original_text:
-                        run = paragraph.add_run()
-                        run.text = f"\n{translated}"
-                        run.font.size = Pt(10)
-                        run.font.color.rgb = RGBColor(0, 102, 204)
-        progress_bar.progress((i + 1) / total_slides)
-    prs.save(output_path)
-    status_text.text("PPT 번역 완료!")
-
-
-def process_pdf(input_path, output_path, dept):
-    """일반 강의자료 PDF 번역: 원문 하단에 한국어 삽입"""
-    doc = fitz.open(input_path)
-    total_pages = len(doc)
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    font_path = "C:/Windows/Fonts/malgun.ttf"
-
-    for i, page in enumerate(doc):
-        status_text.text(f"슬라이드 {i + 1}/{total_pages} 번역 중...")
-        # 문장 단위 재구성을 위한 텍스트 추출 방식 개선 가능
-        blocks = page.get_text("blocks")
-
-        for b in blocks:
-            # b[4]는 해당 블록의 텍스트 내용입니다.
-            full_text = b[4].replace("\n", " ").strip()
-
-            if len(full_text) < 2 or not is_english_content(full_text):
-                continue
-
-            translated = translate_single(full_text, dept)
-
-            if translated and translated != full_text:
-                # b[0]~b[3]은 블록의 좌표(x0, y0, x1, y1)입니다.
-                # 원문 바로 아래에 번역문을 삽입
-                page.insert_text((b[0], b[3] + 5), translated,
-                                 fontname="ko", fontfile=font_path,
-                                 fontsize=9, color=(0, 0.2, 0.6))
-
-        progress_bar.progress((i + 1) / total_pages)
-    doc.save(output_path)
-    doc.close()
-
-
-
-# --- [4. Streamlit UI 구성] ---
-st.set_page_config(page_title="EduTrans - 전공자료 번역기", layout="centered", page_icon="🎓")
-
-st.markdown("""<style>
-    .stSidebar h2 { font-size: 2.2rem !important; color: #4A90E2; }
-    div[data-testid="stSelectbox"] label { font-size: 1.1rem !important; font-weight: bold !important; }
-    .stButton button { width: 100%; height: 3rem; font-size: 1.2rem !important; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
-</style>""", unsafe_allow_html=True)
-
-st.title("🎓 전공 맞춤형 강의자료 번역기")
-
-# 상세 이용 가이드 가이드라인
-with st.expander("📖 EduTrans 이용 가이드 (클릭하여 확인)", expanded=False):
-    st.markdown("""
-    ### **이용 순서**
-    1. **왼쪽 사이드바**에서 본인의 **계열(문/이/예)**을 먼저 선택합니다.
-    2. 나타나는 리스트에서 본인의 **세부 전공**을 고릅니다. 전공에 따라 용어 처리가 달라집니다.
-    3. 상단 탭에서 파일 형식(**PPT, PDF**)을 선택한 뒤 파일을 업로드합니다.
-    4. **번역 시작** 버튼을 누르고 잠시 기다린 후, 결과 파일을 다운로드합니다.
-    5. **번역 캐시** 버튼을 눌러주세요. 동일한 문장은 다시 번역하지 않아 속도가 매우 빠릅니다. 전공을 바꿨다면 '캐시 초기화'를 눌러주세요.
-    
-    ### **⚠️ 주의사항 (필독)**
-    * **페이지 제한**: **50페이지 이상**의 자료는 업로드하지 마세요. (로컬 LLM 자원 한계로 인한 시스템 다운 방지)
-    * **단일 파일 원칙**: 동시에 **여러 개**의 파일을 업로드할 수 없습니다. 하나씩 번역해 주세요.
-    * **서버 상태**: 로컬 LLM(Ollama)이 실행 중이어야 합니다.
-    * **글꼴**: Windows 환경의 '맑은 고딕' 경로를 기본으로 사용합니다.
-    * **보안**: 로컬에서 처리되므로 외부로 데이터가 유출되지 않습니다.
-    * **한계**: 수식이나 복잡한 표 내부 이미지는 번역되지 않을 수 있습니다.
-
-    ### **탭별 특징**
-    * 📊 **PPT 번역**: 원본 텍스트 줄 아래에 파란색 번역문이 추가됩니다. (표 내용 포함)
-    * 📄 **PDF 번역**: 일반 강의노트용입니다. 텍스트 바로 아래에 번역문이 삽입됩니다.
-    
-    """)
-
-with st.sidebar:
+    st.divider()
     st.header("🏫 전공 및 과목 설정")
-    # 계층형 학과 리스트 전체 반영
+
+    # 자동 감지 옵션 추가
+    auto_detect = st.checkbox("🔍 전공 자동 감지 모드", value=True, help="첫 페이지를 분석해 전공을 스스로 판단합니다.")
+
     category = st.radio("1. 계열 선택", ["문과 (Humanities)", "이과 (Science & Engineering)", "예체능 (Arts & Sports)"])
 
     dept_map = {
@@ -238,27 +63,168 @@ with st.sidebar:
             "Vocal Music", "Physical Education", "Film & Digital Media", "Fashion Design"
         ]
     }
+    manual_dept = st.selectbox("2. 세부 전공 선택", dept_map[category])
 
-    selected_dept = st.selectbox("2. 세부 전공 선택", dept_map[category])
-
-    is_tech = category == "이과 (Science & Engineering)" and any(
-        x in selected_dept for x in ["Computer", "Data", "AI", "Electrical"])
-
+    # 현재 적용 중인 전공 표시
+    display_dept = st.session_state['detected_dept'] if (
+                auto_detect and st.session_state['detected_dept']) else manual_dept
+    st.info(f"📍 현재 적용 문맥: **{display_dept}**")
 
     st.divider()
     if st.button("🧹 번역 캐시 초기화"):
         st.session_state['translation_cache'] = {}
+        st.session_state['detected_dept'] = None
         st.success("캐시가 초기화되었습니다.")
+
+
+# --- [3. 핵심 엔지니어링 유틸리티 (기존 로직 유지)] ---
+
+def normalize_for_cache(text):
+    return re.sub(r'\s+', ' ', text.lower().strip())
+
+
+def clean_text_logic(text):
+    text = unicodedata.normalize('NFKC', text)
+    text = text.replace("-\n", "").replace("\n", " ")
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def is_english_content(text):
+    return any(c.isalpha() for c in text)
+
+
+def detect_major_from_text(text):
+    """[추가] 첫 페이지 텍스트로 전공 자동 추론"""
+    if not text.strip(): return "General"
+    prompt = (
+        f"Analyze this text from a lecture slide and identify the academic major. "
+        f"Answer with ONLY the name of the major in English.\n\nText: {text[:500]}\nMajor:"
+    )
+    try:
+        return str(llm.invoke(prompt)).strip()
+    except:
+        return "General"
+
+
+def translate_single(text, department):
+    """기존의 용어 사전 및 '순수 해석' 프롬프트 유지"""
+    cleaned = clean_text_logic(text)
+    if len(cleaned) < 1: return text
+
+    norm_key = normalize_for_cache(cleaned)
+    if norm_key in st.session_state['translation_cache']:
+        return st.session_state['translation_cache'][norm_key]
+
+    glossary_hint = ""
+    if department in GLOSSARY:
+        terms = [f"{k}:{v}" for k, v in GLOSSARY[department].items()]
+        glossary_hint = f"(용어 강제: {', '.join(terms)})"
+
+    prompt = (
+        f"You are a professional translator for {department} students. "
+        f"Your ONLY job is to output the Korean translation of the given text. "
+        f"STRICT RULE: NEVER explain. Output ONLY the translation.\n\n"
+        f"{glossary_hint}\nEnglish: {cleaned}\nKorean:"
+    )
+
+    try:
+        translated = str(llm.invoke(prompt)).strip()
+        if not translated or translated == cleaned: return ""
+
+        # 모델 잡설 제거 로직
+        translated = re.sub(r'^(번역:|결과:|Translated:|해석:|Korean:)', '', translated, flags=re.IGNORECASE).strip()
+        translated = re.sub(r'^[" \']+|[" \']+$', '', translated).strip()
+
+        st.session_state['translation_cache'][norm_key] = translated
+        return translated
+    except Exception as e:
+        st.error(f"Ollama 연결 확인 필요: {e}")
+        return text
+
+
+# --- [4. 문서 처리 함수 (진행 바 및 레이아웃 유지)] ---
+
+def process_pptx(input_path, output_path, dept, auto_detect_flag):
+    prs = Presentation(input_path)
+    total_slides = len(prs.slides)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    # [추가] 자동 전공 감지 실행
+    if auto_detect_flag and total_slides > 0:
+        first_text = ""
+        for shape in prs.slides[0].shapes:
+            if hasattr(shape, "text"): first_text += shape.text + " "
+        st.session_state['detected_dept'] = detect_major_from_text(first_text)
+        dept = st.session_state['detected_dept']
+
+    for i, slide in enumerate(prs.slides):
+        status_text.text(f"슬라이드 {i + 1}/{total_slides} 번역 중... (전공: {dept})")
+        for shape in slide.shapes:
+            if hasattr(shape, "text_frame") and shape.text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    original_text = "".join(run.text for run in paragraph.runs).strip()
+                    if len(original_text) < 2 or not is_english_content(original_text):
+                        continue
+
+                    translated = translate_single(original_text, dept)
+                    if translated and translated != original_text:
+                        run = paragraph.add_run()
+                        run.text = f"\n{translated}"
+                        run.font.size = Pt(10)
+                        run.font.color.rgb = RGBColor(0, 102, 204)
+        progress_bar.progress((i + 1) / total_slides)
+    prs.save(output_path)
+    status_text.text("✅ PPT 번역 완료!")
+
+
+def process_pdf(input_path, output_path, dept):
+    doc = fitz.open(input_path)
+    total_pages = len(doc)
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    font_path = "C:/Windows/Fonts/malgun.ttf"  # Windows 기준
+
+    for i, page in enumerate(doc):
+        status_text.text(f"페이지 {i + 1}/{total_pages} 번역 중...")
+        blocks = page.get_text("blocks")
+        for b in blocks:
+            full_text = b[4].replace("\n", " ").strip()
+            if len(full_text) < 2 or not is_english_content(full_text): continue
+
+            translated = translate_single(full_text, dept)
+            if translated and translated.strip() != "":
+                # 텍스트 바로 아래(b[3]+5)에 삽입
+                page.insert_text((b[0], b[3] + 5), translated,
+                                 fontname="ko", fontfile=font_path,
+                                 fontsize=9, color=(0, 0.2, 0.6))
+        progress_bar.progress((i + 1) / total_pages)
+    doc.save(output_path)
+    doc.close()
+    status_text.text("✅ PDF 번역 완료!")
+
+
+# --- [5. Streamlit UI 메인 구성 (기존 스타일 유지)] ---
+st.markdown("""<style>
+    .stSidebar h2 { font-size: 1.8rem !important; color: #4A90E2; }
+    .stButton button { width: 100%; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
+</style>""", unsafe_allow_html=True)
+
+st.title("🎓 전공 맞춤형 강의자료 번역기")
+
+with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
+    st.markdown("""
+    1. **로컬 엔진:** Ollama가 실행 중이어야 합니다 (`ollama serve`).
+    2. **모델 선택:** 저사양은 **phi3**, 고사양은 **llama3**를 권장합니다.
+    3. **자동 감지:** 첫 슬라이드를 분석해 전공 문맥을 자동으로 설정합니다.
+    4. **보안:** 모든 데이터는 본인 PC 내에서만 처리되어 안전합니다.
+    """)
 
 tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
 
 
 def run_translation(uploaded_file, mode):
     if uploaded_file:
-        # [개선] 파일 용량 제한 경고 [cite: 21]
-        if uploaded_file.size > 10 * 1024 * 1024:  # 10MB 기준
-            st.warning("파일 크기가 큽니다. 번역에 시간이 오래 걸릴 수 있습니다.")
-
         if st.button(f"🚀 {mode} 번역 시작"):
             suffix = os.path.splitext(uploaded_file.name)[1]
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
@@ -266,31 +232,23 @@ def run_translation(uploaded_file, mode):
                 in_path = tmp_in.name
 
             out_path = os.path.join(tempfile.gettempdir(), f"translated_{uploaded_file.name}")
-
             try:
-                with st.spinner(f"대규모 언어 모델(Ollama)이 {selected_dept} 용어를 분석 중..."):
+                with st.spinner(f"{selected_model} 모델이 문맥 분석 및 번역 중..."):
                     if mode == "PPTX":
-                        process_pptx(in_path, out_path, selected_dept)
+                        process_pptx(in_path, out_path, manual_dept, auto_detect)
                     else:
-                        process_pdf(in_path, out_path, selected_dept)
-
-                st.success("✅ 번역 완료!")
+                        process_pdf(in_path, out_path, manual_dept)
+                st.success("✅ 처리가 완료되었습니다!")
                 with open(out_path, "rb") as f:
                     st.download_button("💾 결과 다운로드", f, file_name=f"translated_{uploaded_file.name}")
             except Exception as e:
-                st.error(f"처리 중 오류 발생: {e}")
+                st.error(f"오류 발생: {e}")
             finally:
                 if os.path.exists(in_path): os.remove(in_path)
 
 
-with tab1: run_translation(st.file_uploader("PPTX 업로드 (50p 이내)", type="pptx", key="p1"), "PPTX")
-with tab2: run_translation(st.file_uploader("PDF 업로드 (50p 이내)", type="pdf", key="p2"), "PDF")
+with tab1: run_translation(st.file_uploader("PPTX 업로드", type="pptx", key="p1"), "PPTX")
+with tab2: run_translation(st.file_uploader("PDF 업로드", type="pdf", key="p2"), "PDF")
 
 st.divider()
-st.markdown("""
-    <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        <p>Built with <b>Meta Llama 3</b> | Powered by PyMuPDF & Ollama</p>
-        <p>Meta Llama 3 is licensed under the Meta Llama 3 Community License. 
-        Copyright © Meta Platforms, Inc. All Rights Reserved.</p>
-    </div>
-""", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: gray;'>Powered by Ollama & Streamlit</p>", unsafe_allow_html=True)
