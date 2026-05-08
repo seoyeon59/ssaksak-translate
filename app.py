@@ -34,7 +34,6 @@ def save_user_glossary(data):
 
 
 def get_merged_glossary(dept, user_glossary):
-    """기본 용어 사전 위에 사용자 용어를 덮어써서 반환 (사용자 우선)"""
     base = dict(DEFAULT_GLOSSARY.get(dept, {}))
     base.update(user_glossary.get(dept, {}))
     return base
@@ -63,15 +62,16 @@ FONT_FILE_PATH, FONT_NAME = get_system_font()
 
 
 # --- [모델 정보] ---
-# 순서 = 사이드바 드롭다운 순서 (위에 있을수록 기본값에 가까움)
 MODEL_INFO = {
-    "qwen3:4b": {
-        "label": "qwen3:4b ⭐ 저사양 1순위",
-        "ram": "~3GB RAM",
+    "qwen2.5:3b": {
+        "label": "qwen2.5:3b ⭐ 저사양 1순위",
+        "ram": "~2GB RAM",
         "quality": "번역 품질 ★★★★★",
         "speed": "속도 ★★★★☆",
-        "desc": "Alibaba Qwen3 4B. 저사양 환경에서 최고 번역 품질. 강력 추천.",
+        "desc": "Alibaba Qwen2.5 3B. 저사양 환경에서 최고 번역 품질. 강력 추천.",
         "family": "qwen",
+        "num_predict": 150,
+        "stop": ["\nEnglish:", "\n"],
     },
     "llama3.2:3b": {
         "label": "llama3.2:3b ⭐ 저사양 2순위",
@@ -80,6 +80,8 @@ MODEL_INFO = {
         "speed": "속도 ★★★★★",
         "desc": "Meta Llama 3.2 3B. 가장 가볍고 빠름. 번역 품질도 충분히 좋음.",
         "family": "llama",
+        "num_predict": 120,
+        "stop": ["\nEnglish:", "\n"],   # 단일 줄바꿈에서 중단 → 과잉 생성 방지
     },
     "llama3": {
         "label": "llama3 ⭐ 고사양 추천",
@@ -88,14 +90,8 @@ MODEL_INFO = {
         "speed": "속도 ★★★☆☆",
         "desc": "Meta Llama 3 8B. 최고 품질. GPU 8GB 이상 고사양 환경 권장.",
         "family": "llama",
-    },
-    "phi3": {
-        "label": "phi3 (비권장)",
-        "ram": "~4GB RAM",
-        "quality": "번역 품질 ★★☆☆☆",
-        "speed": "속도 ★★★★★",
-        "desc": "Microsoft Phi-3. 한국어 번역 품질이 낮아 비권장. 위 모델 사용을 권장합니다.",
-        "family": "phi",
+        "num_predict": 180,
+        "stop": ["\nEnglish:", "\n\n"],
     },
 }
 
@@ -113,20 +109,24 @@ with st.sidebar:
     info = MODEL_INFO[selected_model]
     st.caption(f"{info['ram']} | {info['quality']} | {info['speed']}\n\n{info['desc']}")
 
-    # num_predict: qwen3:4b는 한국어 출력이 길어질 수 있어 200으로 설정
-    llm = OllamaLLM(model=selected_model, temperature=0, num_predict=200)
+    llm = OllamaLLM(
+        model=selected_model,
+        temperature=0,
+        num_predict=MODEL_INFO[selected_model]["num_predict"],
+    )
 
     st.divider()
     st.header("🏫 전공 및 과목 설정")
 
     auto_detect = st.checkbox(
         "🔍 전공 자동 감지 모드", value=True,
-        help="첫 페이지를 분석해 전공을 스스로 판단합니다."
+        help="파일 첫 페이지를 분석해 전공을 자동으로 추론합니다. 비활성화하면 아래 수동 선택이 적용됩니다."
     )
 
     category = st.radio(
-        "1. 계열 선택",
-        ["문과 (Humanities)", "이과 (Science & Engineering)", "예체능 (Arts & Sports)"]
+        "수동 전공 선택 (자동 감지 비활성화 시 사용)",
+        ["문과 (Humanities)", "이과 (Science & Engineering)", "예체능 (Arts & Sports)"],
+        disabled=auto_detect,
     )
 
     dept_map = {
@@ -146,20 +146,30 @@ with st.sidebar:
             "Vocal Music", "Physical Education", "Film & Digital Media", "Fashion Design"
         ]
     }
-    manual_dept = st.selectbox("2. 세부 전공 선택", dept_map[category])
+    manual_dept = st.selectbox(
+        "세부 전공", dept_map[category],
+        disabled=auto_detect,
+    )
 
-    display_dept = st.session_state["detected_dept"] if (
-        auto_detect and st.session_state["detected_dept"]
-    ) else manual_dept
-    st.info(f"📍 현재 적용 문맥: **{display_dept}**")
+    # 현재 적용 중인 전공 표시
+    if auto_detect:
+        detected = st.session_state.get("detected_dept")
+        if detected and detected != "General":
+            st.info(f"📍 감지된 전공: **{detected}**")
+        else:
+            st.info("📍 파일 업로드 시 전공을 자동 감지합니다.")
+    else:
+        st.info(f"📍 수동 선택 전공: **{manual_dept}**")
 
     # ── 용어 사전 편집 UI ──────────────────────────
     st.divider()
     st.header("📚 용어 사전 편집")
-    st.caption(f"현재 전공: **{manual_dept}**")
+
+    active_dept = (st.session_state.get("detected_dept") or manual_dept) if auto_detect else manual_dept
+    st.caption(f"현재 전공: **{active_dept}**")
 
     with st.expander("기본 용어 사전 보기"):
-        default_terms = DEFAULT_GLOSSARY.get(manual_dept, {})
+        default_terms = DEFAULT_GLOSSARY.get(active_dept, {})
         if default_terms:
             for eng, kor in default_terms.items():
                 st.markdown(f"- **{eng}** → {kor}")
@@ -175,13 +185,13 @@ with st.sidebar:
                 new_kor = st.text_input("한국어 번역", placeholder="e.g. 경사 하강법")
             submitted = st.form_submit_button("➕ 추가")
             if submitted and new_eng.strip() and new_kor.strip():
-                if manual_dept not in st.session_state["user_glossary"]:
-                    st.session_state["user_glossary"][manual_dept] = {}
-                st.session_state["user_glossary"][manual_dept][new_eng.strip()] = new_kor.strip()
+                if active_dept not in st.session_state["user_glossary"]:
+                    st.session_state["user_glossary"][active_dept] = {}
+                st.session_state["user_glossary"][active_dept][new_eng.strip()] = new_kor.strip()
                 save_user_glossary(st.session_state["user_glossary"])
                 st.success(f"추가됨: {new_eng.strip()} → {new_kor.strip()}")
 
-    user_dept_terms = st.session_state["user_glossary"].get(manual_dept, {})
+    user_dept_terms = st.session_state["user_glossary"].get(active_dept, {})
     if user_dept_terms:
         with st.expander(f"내 커스텀 용어 목록 ({len(user_dept_terms)}개)"):
             to_delete = []
@@ -193,7 +203,7 @@ with st.sidebar:
                     if st.button("🗑️", key=f"del_{eng}"):
                         to_delete.append(eng)
             for key in to_delete:
-                del st.session_state["user_glossary"][manual_dept][key]
+                del st.session_state["user_glossary"][active_dept][key]
                 save_user_glossary(st.session_state["user_glossary"])
                 st.rerun()
 
@@ -245,28 +255,35 @@ def is_english_content(text):
     return any(c.isalpha() for c in text)
 
 
-def detect_major_from_text(text):
+def detect_major_from_text(text, fallback_dept):
+    """첫 페이지 텍스트로 전공 자동 추론. 실패 시 fallback_dept 반환."""
     if not text.strip():
-        return "General"
+        return fallback_dept
+
     family = get_model_family()
-    # Qwen3: /no_think로 사고 모드 비활성화
-    prefix = "/no_think\n" if family == "qwen" else ""
     prompt = (
-        f"{prefix}Analyze this text from a lecture slide and identify the academic major. "
-        f"Answer with ONLY the major name in English (e.g. 'Data Science', 'Nursing').\n\n"
-        f"Text: {text[:500]}\nMajor:"
+        f"Read this university lecture slide text and identify the academic major/subject.\n"
+        f"Reply with ONLY the major name in English (e.g. 'Data Science', 'Nursing', 'Marketing').\n"
+        f"Do NOT explain. Output the major name only.\n\n"
+        f"Text: {text[:600]}\nMajor:"
     )
     try:
-        result = str(llm.invoke(prompt, stop=["\n", "<think>"])).strip()
-        # <think> 블록이 포함됐을 경우 제거
+        stop = ["\n", "\n\n"]
+        result = str(llm.invoke(prompt, stop=stop)).strip()
+        # thinking 블록 제거
         result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL).strip()
-        return result if result else "General"
+        result = result.split("\n")[0].strip()
+        # 유효하지 않은 결과면 fallback
+        if not result or result.lower() in ("general", "unknown", "none", "n/a"):
+            return fallback_dept
+        return result
     except Exception:
-        return "General"
+        return fallback_dept
 
 
 def glossary_exact_match(text, glossary):
-    stripped = text.strip()
+    """콜론/공백 제거 후 대소문자 무관 전체 매칭"""
+    stripped = text.strip().rstrip(":")
     if stripped in glossary:
         return glossary[stripped]
     lower = stripped.lower()
@@ -276,21 +293,25 @@ def glossary_exact_match(text, glossary):
     return None
 
 
-def build_glossary_hint(glossary, family):
-    """모델 패밀리별 glossary hint 생성 (최대 30개로 제한)"""
+def build_glossary_hint(glossary, text):
+    """번역 텍스트에 실제 등장하는 용어만 추출 (최대 6개)"""
     if not glossary:
         return ""
-    items = list(glossary.items())[:30]
+    text_lower = text.lower()
+    matched = {k: v for k, v in glossary.items() if k.lower() in text_lower}
+    if not matched:
+        return ""
+    items = list(matched.items())[:6]
     pairs = ", ".join(f"{k}={v}" for k, v in items)
-    return f"[Term mappings — use these Korean equivalents: {pairs}]"
+    return f"[Terms: {pairs}]"
 
 
 def post_process(translated, original):
     """LLM 출력 공통 후처리"""
-    # Qwen3 thinking 블록 제거 (<think>...</think>)
+    # Qwen3 thinking 블록 제거 (<think>...</think> 전체)
     translated = re.sub(r"<think>.*?</think>", "", translated, flags=re.DOTALL).strip()
 
-    # 모델이 붙이는 접두어 패턴 제거
+    # 접두어 패턴 제거
     trash_phrases = [
         r"^here is the translation:?",
         r"^translated text:?",
@@ -308,13 +329,13 @@ def post_process(translated, original):
     for phrase in trash_phrases:
         translated = re.sub(phrase, "", translated, flags=re.IGNORECASE).strip()
 
-    # 키릴 문자 등 비정상 유니코드 제거
+    # 비정상 유니코드 제거 (키릴, 베트남어 등)
     translated = re.sub(r"[^가-힣 -~ -ɏ　-〿().,!?:/\-\d]", "", translated).strip()
 
     # 앞뒤 따옴표 제거
     translated = re.sub(r'^["\' ]+|["\' ]+$', "", translated).strip()
 
-    # 첫 줄만 사용 (설명 여러 줄 방지)
+    # 첫 줄만 사용 (번역은 항상 한 줄)
     lines = [l.strip() for l in translated.split("\n") if l.strip()]
     if lines:
         translated = lines[0] if len(lines[0]) > 1 else " ".join(lines[:2])
@@ -338,56 +359,36 @@ def translate_single(text, department):
     # 2. 기본 + 사용자 용어 병합
     glossary = get_merged_glossary(department, st.session_state["user_glossary"])
 
-    # 3. 짧은 텍스트(6단어 이하)는 용어 사전 직접 매칭 우선
+    # 3. 짧은 텍스트(6단어 이하) — 용어 사전 직접 매칭 우선
     if len(cleaned.split()) <= 6:
         exact = glossary_exact_match(cleaned, glossary)
         if exact:
             st.session_state["translation_cache"][norm_key] = exact
             return exact
 
-    # 4. 모델 패밀리 및 glossary hint
+    # 4. glossary hint (텍스트 관련 용어만)
     family = get_model_family()
-    glossary_hint = build_glossary_hint(glossary, family)
+    glossary_hint = build_glossary_hint(glossary, cleaned)
+    stop_param = MODEL_INFO[selected_model]["stop"]
 
-    # 5. 패밀리별 프롬프트
+    # 5. 모델 패밀리별 프롬프트
     if family == "qwen":
         prompt = (
-            f"/no_think\n"
-            f"You are a professional Korean translator specializing in {department}.\n"
-            f"Translate the English text below into natural Korean.\n"
-            f"Rules:\n"
-            f"- Output ONLY the Korean translation. No explanations, no prefixes, no labels.\n"
-            f"- Do NOT output 'Korean:', '번역:', '강의:', '/no_think' or any tag.\n"
+            f"You are a Korean translator for {department} academic slides.\n"
+            f"Translate the English text into Korean. ONE LINE only. No lists. No explanations.\n"
             f"{glossary_hint}\n\n"
             f"English: {cleaned}\n"
-            f"Korean translation:"
-        )
-        stop_param = ["\nEnglish:", "\n\n", "<think>"]
-
-    elif family in ("llama", "gemma"):
-        prompt = (
-            f"You are a professional Korean translator specializing in {department}.\n"
-            f"Translate the English text below into natural Korean.\n"
-            f"Rules:\n"
-            f"- Output ONLY the Korean translation. No explanations, no prefixes, no labels.\n"
-            f"- Do NOT output 'Korean:', '번역:', '강의:' or any label.\n"
-            f"{glossary_hint}\n\n"
-            f"English: {cleaned}\n"
-            f"Korean translation:"
-        )
-        stop_param = ["\nEnglish:", "\n\n"]
-
-    else:
-        # phi3
-        prompt = (
-            f"You are a Korean translator for {department} academic content.\n"
-            f"Translate the text below into Korean. Output ONLY Korean text.\n"
-            f"Do NOT repeat the input. Do NOT add English. Do NOT add explanations.\n"
-            f"Term guide: {glossary_hint}\n\n"
-            f"Text to translate: {cleaned}\n"
             f"Korean:"
         )
-        stop_param = ["\nText", "\nTerm", "English:", "\n\n"]
+    else:
+        # llama3, llama3.2:3b 공통
+        prompt = (
+            f"You are a Korean translator for {department} academic slides.\n"
+            f"Translate the English text into Korean. ONE SHORT LINE only. No lists. No explanations. No extra sentences.\n"
+            f"{glossary_hint}\n\n"
+            f"English: {cleaned}\n"
+            f"Korean:"
+        )
 
     try:
         translated = str(llm.invoke(prompt, stop=stop_param)).strip()
@@ -406,19 +407,30 @@ def translate_single(text, department):
 
 # --- [4. 문서 처리 함수] ---
 
-def process_pptx(input_path, output_path, dept, auto_detect_flag):
+def resolve_dept(auto_detect_flag, fallback_dept, first_text):
+    """자동 감지 or 수동 선택으로 최종 전공 결정."""
+    if not auto_detect_flag:
+        return fallback_dept
+    detected = detect_major_from_text(first_text, fallback_dept)
+    st.session_state["detected_dept"] = detected
+    return detected
+
+
+def process_pptx(input_path, output_path, fallback_dept, auto_detect_flag):
     prs = Presentation(input_path)
     total_slides = len(prs.slides)
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    if auto_detect_flag and total_slides > 0:
-        first_text = ""
+    # 첫 슬라이드 텍스트 추출 → 전공 결정
+    first_text = ""
+    if total_slides > 0:
         for shape in prs.slides[0].shapes:
             if hasattr(shape, "text"):
                 first_text += shape.text + " "
-        st.session_state["detected_dept"] = detect_major_from_text(first_text)
-        dept = st.session_state["detected_dept"]
+
+    dept = resolve_dept(auto_detect_flag, fallback_dept, first_text)
+    status_text.text(f"📌 적용 전공: {dept}")
 
     for i, slide in enumerate(prs.slides):
         status_text.text(f"슬라이드 {i + 1}/{total_slides} 번역 중... (전공: {dept})")
@@ -438,22 +450,24 @@ def process_pptx(input_path, output_path, dept, auto_detect_flag):
         progress_bar.progress((i + 1) / total_slides)
 
     prs.save(output_path)
-    status_text.text("✅ PPT 번역 완료!")
+    status_text.text(f"✅ PPT 번역 완료! (전공: {dept})")
 
 
-def process_pdf(input_path, output_path, dept, auto_detect_flag):
+def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
     doc = fitz.open(input_path)
     total_pages = len(doc)
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    if auto_detect_flag and total_pages > 0:
-        status_text.text("🧐 첫 페이지 분석 중... (전공 감지)")
-        first_page = doc[0]
-        first_text = " ".join([b[4] for b in first_page.get_text("blocks") if b[4].strip()])
-        if first_text:
-            st.session_state["detected_dept"] = detect_major_from_text(first_text)
-            dept = st.session_state["detected_dept"]
+    # 첫 페이지 텍스트 추출 → 전공 결정
+    first_text = ""
+    if total_pages > 0:
+        first_text = " ".join(
+            [b[4] for b in doc[0].get_text("blocks") if b[4].strip()]
+        )
+
+    dept = resolve_dept(auto_detect_flag, fallback_dept, first_text)
+    status_text.text(f"📌 적용 전공: {dept}")
 
     for i, page in enumerate(doc):
         status_text.text(f"📄 페이지 {i + 1}/{total_pages} 번역 중... (전공: {dept})")
@@ -489,7 +503,7 @@ def process_pdf(input_path, output_path, dept, auto_detect_flag):
 
     doc.save(output_path)
     doc.close()
-    status_text.text(f"✅ PDF 번역 완료! (적용 전공: {dept})")
+    status_text.text(f"✅ PDF 번역 완료! (전공: {dept})")
 
 
 # --- [5. 메인 UI] ---
@@ -503,11 +517,12 @@ st.title("🎓 전공 맞춤형 강의자료 번역기")
 with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     st.markdown("""
     1. **로컬 엔진:** Ollama가 실행 중이어야 합니다 (`ollama serve`).
-    2. **모델 선택:** 저사양은 **qwen3:4b** (추천) 또는 **llama3.2:3b**, 고사양은 **llama3**를 권장합니다.
-    3. **모델 설치:** `ollama pull qwen3:4b` 또는 `ollama pull llama3.2:3b`
-    4. **자동 감지:** 첫 슬라이드를 분석해 전공 문맥을 자동으로 설정합니다.
-    5. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
-    6. **보안:** 모든 데이터는 본인 PC 내에서만 처리되어 안전합니다.
+    2. **모델 선택:** 저사양은 **qwen2.5:3b** (1순위) 또는 **llama3.2:3b**, 고사양은 **llama3**를 권장합니다.
+    3. **모델 설치:** `ollama pull qwen2.5:3b` / `ollama pull llama3.2:3b`
+    4. **자동 감지 (기본값 ON):** 파일 첫 페이지를 분석해 전공을 자동 추론합니다.
+    5. **수동 모드:** 자동 감지를 끄면 사이드바에서 직접 전공을 선택합니다.
+    6. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
+    7. **보안:** 모든 데이터는 본인 PC 내에서만 처리됩니다.
     """)
 
 tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
@@ -523,7 +538,7 @@ def run_translation(uploaded_file, mode):
 
             out_path = os.path.join(tempfile.gettempdir(), f"translated_{uploaded_file.name}")
             try:
-                with st.spinner(f"{selected_model} 모델이 문맥 분석 및 번역 중..."):
+                with st.spinner(f"{selected_model} 모델 번역 중..."):
                     if mode == "PPTX":
                         process_pptx(in_path, out_path, manual_dept, auto_detect)
                     else:
@@ -546,19 +561,8 @@ with tab2:
 st.divider()
 st.markdown("""
     <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        <p><b>Supported Models:</b> Alibaba Qwen3 · Meta Llama 3 / Llama 3.2 · Microsoft Phi-3</p>
-        <p>Qwen3: Qwen License © Alibaba Cloud |
-           Llama 3 & 3.2: Meta Llama Community License © Meta Platforms, Inc. |
-           Phi-3: MIT License © Microsoft Corporation</p>
-    <div style="text-align: center; color: gray; font-size: 0.8rem; line-height: 1.6;">
-        <p><b>Supported Models:</b> Meta Llama 3 / 3.2 · Microsoft Phi-3</p>
-        <p>
-            <b>Llama 3 & 3.2:</b> Meta Llama Community License © Meta Platforms, Inc.<br>
-            <b>Phi-3:</b> MIT License © Microsoft Corporation (Provided "AS IS")
-        </p>
-        <p style="font-size: 0.7rem; margin-top: 8px; opacity: 0.8;">
-            This application provides access to models under their respective licenses.<br>
-            All trademarks are the property of their respective owners.
-        </p>
+        <p><b>Supported Models:</b> Alibaba Qwen2.5 · Meta Llama 3 / Llama 3.2</p>
+        <p>Qwen2.5: Qwen License © Alibaba Cloud |
+           Llama 3 & 3.2: Meta Llama Community License © Meta Platforms, Inc.</p>
     </div>
     """, unsafe_allow_html=True)
