@@ -72,6 +72,7 @@ MODEL_INFO = {
         "speed": "속도 ★★★★☆",
         "desc": "Alibaba Qwen3 4B. 저사양 환경에서 최고 번역 품질. 강력 추천.",
         "family": "qwen",
+        "num_predict": 180,
     },
     "llama3.2:3b": {
         "label": "llama3.2:3b ⭐ 저사양 2순위",
@@ -80,6 +81,7 @@ MODEL_INFO = {
         "speed": "속도 ★★★★★",
         "desc": "Meta Llama 3.2 3B. 가장 가볍고 빠름. 번역 품질도 충분히 좋음.",
         "family": "llama",
+        "num_predict": 150,
     },
     "llama3": {
         "label": "llama3 ⭐ 고사양 추천",
@@ -88,6 +90,7 @@ MODEL_INFO = {
         "speed": "속도 ★★★☆☆",
         "desc": "Meta Llama 3 8B. 최고 품질. GPU 8GB 이상 고사양 환경 권장.",
         "family": "llama",
+        "num_predict": 180,
     },
     "phi3": {
         "label": "phi3 (비권장)",
@@ -96,6 +99,7 @@ MODEL_INFO = {
         "speed": "속도 ★★★★★",
         "desc": "Microsoft Phi-3. 한국어 번역 품질이 낮아 비권장. 위 모델 사용을 권장합니다.",
         "family": "phi",
+        "num_predict": 120,
     },
 }
 
@@ -113,8 +117,8 @@ with st.sidebar:
     info = MODEL_INFO[selected_model]
     st.caption(f"{info['ram']} | {info['quality']} | {info['speed']}\n\n{info['desc']}")
 
-    # num_predict: qwen3:4b는 한국어 출력이 길어질 수 있어 200으로 설정
-    llm = OllamaLLM(model=selected_model, temperature=0, num_predict=200)
+    llm = OllamaLLM(model=selected_model, temperature=0,
+                    num_predict=MODEL_INFO[selected_model]["num_predict"])
 
     st.divider()
     st.header("🏫 전공 및 과목 설정")
@@ -276,13 +280,19 @@ def glossary_exact_match(text, glossary):
     return None
 
 
-def build_glossary_hint(glossary, family):
-    """모델 패밀리별 glossary hint 생성 (최대 30개로 제한)"""
+def build_glossary_hint(glossary, text):
+    """번역할 텍스트에 실제 등장하는 용어만 골라서 hint 생성 (최대 8개)
+    관련 없는 용어를 모두 넣으면 프롬프트가 길어져 속도가 크게 저하됨."""
     if not glossary:
         return ""
-    items = list(glossary.items())[:30]
+    text_lower = text.lower()
+    matched = {k: v for k, v in glossary.items() if k.lower() in text_lower}
+    # 매칭된 게 없으면 hint 없이 진행 (불필요한 토큰 절약)
+    if not matched:
+        return ""
+    items = list(matched.items())[:8]
     pairs = ", ".join(f"{k}={v}" for k, v in items)
-    return f"[Term mappings — use these Korean equivalents: {pairs}]"
+    return f"[Term mappings: {pairs}]"
 
 
 def post_process(translated, original):
@@ -345,9 +355,9 @@ def translate_single(text, department):
             st.session_state["translation_cache"][norm_key] = exact
             return exact
 
-    # 4. 모델 패밀리 및 glossary hint
+    # 4. 모델 패밀리 및 glossary hint (텍스트에 등장하는 용어만 포함)
     family = get_model_family()
-    glossary_hint = build_glossary_hint(glossary, family)
+    glossary_hint = build_glossary_hint(glossary, cleaned)
 
     # 5. 패밀리별 프롬프트
     if family == "qwen":
