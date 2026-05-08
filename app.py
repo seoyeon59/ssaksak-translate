@@ -252,7 +252,12 @@ def clean_text_logic(text):
 
 
 def is_english_content(text):
-    return any(c.isalpha() for c in text)
+    ascii_alpha = sum(1 for c in text if c.isalpha() and ord(c) < 128)
+    korean = sum(1 for c in text if '가' <= c <= '힣')
+    total_alpha = sum(1 for c in text if c.isalpha())
+    if total_alpha == 0 or ascii_alpha == 0:
+        return False
+    return korean / total_alpha < 0.3  # 한국어 비율 30% 미만일 때만 번역
 
 
 def detect_major_from_text(text, fallback_dept):
