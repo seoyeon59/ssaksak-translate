@@ -82,7 +82,7 @@ MODEL_INFO = {
         "desc": "Meta Llama 3.2 3B. 가장 가볍고 빠름. 번역 품질도 충분히 좋음.",
         "family": "llama",
         "num_predict": 120,
-        "stop": ["\nEnglish:", "\n"],   # 단일 줄바꿈에서 중단 → 과잉 생성 방지
+        "stop": ["\nEnglish:", "\n"],
     },
     "llama3": {
         "label": "llama3 ⭐ 고사양 추천",
@@ -161,7 +161,6 @@ with st.sidebar:
         disabled=auto_detect,
     )
 
-    # 현재 적용 중인 전공 표시
     if auto_detect:
         detected = st.session_state.get("detected_dept")
         if detected and detected != "General":
@@ -171,7 +170,6 @@ with st.sidebar:
     else:
         st.info(f"📍 수동 선택 전공: **{manual_dept}**")
 
-    # ── 용어 사전 편집 UI ──────────────────────────
     st.divider()
     st.header("📚 용어 사전 편집")
 
@@ -287,11 +285,8 @@ def is_code_block(text):
 
 
 def detect_major_from_text(text, fallback_dept):
-    """첫 페이지 텍스트로 전공 자동 추론. 실패 시 fallback_dept 반환."""
     if not text.strip():
         return fallback_dept
-
-    family = get_model_family()
     prompt = (
         f"Read this university lecture slide text and identify the academic major/subject.\n"
         f"Reply with ONLY the major name in English (e.g. 'Data Science', 'Nursing', 'Marketing').\n"
@@ -299,12 +294,9 @@ def detect_major_from_text(text, fallback_dept):
         f"Text: {text[:600]}\nMajor:"
     )
     try:
-        stop = ["\n", "\n\n"]
-        result = str(llm.invoke(prompt, stop=stop)).strip()
-        # thinking 블록 제거
+        result = str(llm.invoke(prompt, stop=["\n", "\n\n"])).strip()
         result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL).strip()
         result = result.split("\n")[0].strip()
-        # 유효하지 않은 결과면 fallback
         if not result or result.lower() in ("general", "unknown", "none", "n/a"):
             return fallback_dept
         return result
@@ -313,7 +305,6 @@ def detect_major_from_text(text, fallback_dept):
 
 
 def glossary_exact_match(text, glossary):
-    """콜론/공백 제거 후 대소문자 무관 전체 매칭"""
     stripped = text.strip().rstrip(":")
     if stripped in glossary:
         return glossary[stripped]
@@ -325,7 +316,6 @@ def glossary_exact_match(text, glossary):
 
 
 def build_glossary_hint(glossary, text):
-    """번역 텍스트에 실제 등장하는 용어만 추출 (최대 6개)"""
     if not glossary:
         return ""
     text_lower = text.lower()
@@ -338,42 +328,21 @@ def build_glossary_hint(glossary, text):
 
 
 def post_process(translated, original):
-    """LLM 출력 공통 후처리"""
-    # Qwen3 thinking 블록 제거 (<think>...</think> 전체)
     translated = re.sub(r"<think>.*?</think>", "", translated, flags=re.DOTALL).strip()
-
-    # 접두어 패턴 제거
     trash_phrases = [
-        r"^here is the translation:?",
-        r"^translated text:?",
-        r"^korean translation:?",
-        r"^번역\s*:",
-        r"^결과\s*:",
-        r"^해석\s*:",
-        r"^output\s*:",
-        r"^korean\s*:",
-        r"^강의\s*:",
-        r"^강의\s+\d+\s*:",
-        r"^translation\s*:",
-        r"^/no_think",
+        r"^here is the translation:?", r"^translated text:?", r"^korean translation:?",
+        r"^번역\s*:", r"^결과\s*:", r"^해석\s*:", r"^output\s*:", r"^korean\s*:",
+        r"^강의\s*:", r"^강의\s+\d+\s*:", r"^translation\s*:", r"^/no_think",
     ]
     for phrase in trash_phrases:
         translated = re.sub(phrase, "", translated, flags=re.IGNORECASE).strip()
-
-    # 비정상 유니코드 제거 (키릴, 베트남어 등)
     translated = re.sub(r"[^가-힣 -~ -ɏ　-〿().,!?:/\-\d]", "", translated).strip()
-
-    # 앞뒤 따옴표 제거
     translated = re.sub(r'^["\' ]+|["\' ]+$', "", translated).strip()
-
-    # 첫 줄만 사용 (번역은 항상 한 줄)
     lines = [l.strip() for l in translated.split("\n") if l.strip()]
     if lines:
         translated = lines[0] if len(lines[0]) > 1 else " ".join(lines[:2])
-
     if not translated or translated.lower() == original.lower():
         return ""
-
     return translated
 
 
@@ -382,27 +351,22 @@ def translate_single(text, department):
     if len(cleaned) < 1:
         return text
 
-    # 1. 캐시 확인
     norm_key = normalize_for_cache(cleaned)
     if norm_key in st.session_state["translation_cache"]:
         return st.session_state["translation_cache"][norm_key]
 
-    # 2. 기본 + 사용자 용어 병합
     glossary = get_merged_glossary(department, st.session_state["user_glossary"])
 
-    # 3. 짧은 텍스트(6단어 이하) — 용어 사전 직접 매칭 우선
     if len(cleaned.split()) <= 6:
         exact = glossary_exact_match(cleaned, glossary)
         if exact:
             st.session_state["translation_cache"][norm_key] = exact
             return exact
 
-    # 4. glossary hint (텍스트 관련 용어만)
     family = get_model_family()
     glossary_hint = build_glossary_hint(glossary, cleaned)
     stop_param = MODEL_INFO[selected_model]["stop"]
 
-    # 5. 모델 패밀리별 프롬프트
     if family == "qwen":
         prompt = (
             f"You are a Korean translator for {department} academic slides.\n"
@@ -412,7 +376,6 @@ def translate_single(text, department):
             f"Korean:"
         )
     else:
-        # llama3, llama3.2:3b 공통
         prompt = (
             f"You are a Korean translator for {department} academic slides.\n"
             f"Translate the English text into Korean. ONE SHORT LINE only. No lists. No explanations. No extra sentences.\n"
@@ -424,13 +387,10 @@ def translate_single(text, department):
     try:
         translated = str(llm.invoke(prompt, stop=stop_param)).strip()
         translated = post_process(translated, cleaned)
-
         if not translated:
             return ""
-
         st.session_state["translation_cache"][norm_key] = translated
         return translated
-
     except Exception as e:
         st.error(f"Ollama 연결 확인 필요: {e}")
         return text
@@ -439,7 +399,6 @@ def translate_single(text, department):
 # --- [4. 문서 처리 함수] ---
 
 def resolve_dept(auto_detect_flag, fallback_dept, first_text):
-    """자동 감지 or 수동 선택으로 최종 전공 결정."""
     if not auto_detect_flag:
         return fallback_dept
     detected = detect_major_from_text(first_text, fallback_dept)
@@ -453,7 +412,6 @@ def process_pptx(input_path, output_path, fallback_dept, auto_detect_flag):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # 첫 슬라이드 텍스트 추출 → 전공 결정
     first_text = ""
     if total_slides > 0:
         for shape in prs.slides[0].shapes:
@@ -490,7 +448,6 @@ def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # 첫 페이지 텍스트 추출 → 전공 결정
     first_text = ""
     if total_pages > 0:
         first_text = " ".join(
