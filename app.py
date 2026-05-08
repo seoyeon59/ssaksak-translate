@@ -73,13 +73,13 @@ MODEL_INFO = {
         "desc": "저사양 최적 선택. phi3보다 한국어 품질이 확실히 좋습니다.",
         "family": "llama",
     },
-    "gemma2:2b": {
-        "label": "gemma2:2b ⭐ 저사양 추천",
-        "ram": "~3GB RAM",
-        "quality": "번역 품질 ★★★★☆",
-        "speed": "속도 ★★★★★",
-        "desc": "Google Gemma 경량 모델. 한국어 자연스러움이 좋습니다.",
-        "family": "gemma",
+    "qwen3.6": {
+        "label": "qwen3.6 ⭐ 저사양 추천",
+        "ram": "~5GB RAM",
+        "quality": "번역 품질 ★★★★★",
+        "speed": "속도 ★★★★☆",
+        "desc": "Alibaba Qwen3 모델. 한국어 번역 품질이 매우 뛰어나며 저사양에서도 동작합니다.",
+        "family": "qwen",
     },
     "phi3": {
         "label": "phi3",
@@ -342,8 +342,22 @@ def translate_single(text, department):
     # 5. 모델 패밀리별 프롬프트 분기
     model_family = MODEL_INFO.get(selected_model, {}).get("family", "llama")
 
-    if model_family in ("llama", "gemma"):
-        # llama3, llama3.2:3b, gemma2:2b 공통 프롬프트
+    if model_family == "qwen":
+        # Qwen3: /no_think 토큰으로 사고 모드 비활성화 → 번역만 출력
+        prompt = (
+            f"/no_think\n"
+            f"You are a professional Korean translator specializing in {department}.\n"
+            f"Translate the English text below into natural Korean.\n"
+            f"Rules:\n"
+            f"- Output ONLY the Korean translation. No explanations, no prefixes.\n"
+            f"- Do NOT output 'Korean:', '번역:', '강의:' or any label.\n"
+            f"{glossary_hint}\n\n"
+            f"English: {cleaned}\n"
+            f"Korean translation:"
+        )
+        stop_param = ["\nEnglish:", "\n\n", "<think>"]
+    elif model_family in ("llama", "gemma"):
+        # llama3, llama3.2:3b 공통 프롬프트
         prompt = (
             f"You are a professional Korean translator specializing in {department}.\n"
             f"Translate the English text below into natural Korean.\n"
