@@ -5,6 +5,7 @@ import re
 import json
 import unicodedata
 import tempfile
+import subprocess
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
@@ -108,6 +109,15 @@ with st.sidebar:
 
     info = MODEL_INFO[selected_model]
     st.caption(f"{info['ram']} | {info['quality']} | {info['speed']}\n\n{info['desc']}")
+
+    # 고사양 모델은 첫 선택 시 자동 다운로드
+    ON_DEMAND_MODELS = ["llama3"]
+    if selected_model in ON_DEMAND_MODELS:
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+        if selected_model not in result.stdout:
+            with st.spinner(f"⬇️ {selected_model} 모델을 다운로드 중입니다... (최초 1회, 약 4.7GB)"):
+                subprocess.run(["ollama", "pull", selected_model], check=True)
+            st.success(f"{selected_model} 다운로드 완료!")
 
     llm = OllamaLLM(
         model=selected_model,

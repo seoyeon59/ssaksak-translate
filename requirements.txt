@@ -5,7 +5,7 @@ fpdf2
 # PPT 처리
 python-pptx
 
-# AI 엔진
+# AI 연결
 langchain-ollama
 
 # 웹 UI
