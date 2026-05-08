@@ -94,19 +94,13 @@ echo   * llama3 (high-spec) will be downloaded automatically when selected in th
 echo.
 
 :: ── 4. Python 패키지 설치 ───────────────────────
-echo [4/4] Checking Python packages...
-pip show streamlit > nul 2>&1
+echo [4/4] Installing Python packages...
+pip install -r "%~dp0requirements.txt"
 if errorlevel 1 (
-    echo Installing packages...
-    pip install -r "%~dp0requirements.txt"
-    if errorlevel 1 (
-        echo [ERROR] Package installation failed.
-        goto :error
-    )
-    echo [OK] Packages installed
-) else (
-    echo [OK] Packages already installed
+    echo [ERROR] Package installation failed.
+    goto :error
 )
+echo [OK] Packages ready
 echo.
 
 :: ── 앱 실행 ────────────────────────────────────
