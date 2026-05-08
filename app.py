@@ -63,15 +63,15 @@ FONT_FILE_PATH, FONT_NAME = get_system_font()
 
 # --- [모델 정보] ---
 MODEL_INFO = {
-    "qwen3:4b": {
-        "label": "qwen3:4b ⭐ 저사양 1순위",
-        "ram": "~3GB RAM",
+    "qwen2.5:3b": {
+        "label": "qwen2.5:3b ⭐ 저사양 1순위",
+        "ram": "~2GB RAM",
         "quality": "번역 품질 ★★★★★",
         "speed": "속도 ★★★★☆",
-        "desc": "Alibaba Qwen3 4B. 저사양 환경에서 최고 번역 품질. 강력 추천.",
+        "desc": "Alibaba Qwen2.5 3B. 저사양 환경에서 최고 번역 품질. 강력 추천.",
         "family": "qwen",
-        "num_predict": 180,
-        "stop": ["\nEnglish:", "\n\n"],  # <think> 제거 — post_process에서 처리
+        "num_predict": 150,
+        "stop": ["\nEnglish:", "\n"],
     },
     "llama3.2:3b": {
         "label": "llama3.2:3b ⭐ 저사양 2순위",
@@ -261,15 +261,14 @@ def detect_major_from_text(text, fallback_dept):
         return fallback_dept
 
     family = get_model_family()
-    prefix = "/no_think\n" if family == "qwen" else ""
     prompt = (
-        f"{prefix}Read this university lecture slide text and identify the academic major/subject.\n"
+        f"Read this university lecture slide text and identify the academic major/subject.\n"
         f"Reply with ONLY the major name in English (e.g. 'Data Science', 'Nursing', 'Marketing').\n"
         f"Do NOT explain. Output the major name only.\n\n"
         f"Text: {text[:600]}\nMajor:"
     )
     try:
-        stop = ["\n", "<think>"] if family != "qwen" else ["\n", "\n\n"]
+        stop = ["\n", "\n\n"]
         result = str(llm.invoke(prompt, stop=stop)).strip()
         # thinking 블록 제거
         result = re.sub(r"<think>.*?</think>", "", result, flags=re.DOTALL).strip()
@@ -375,7 +374,6 @@ def translate_single(text, department):
     # 5. 모델 패밀리별 프롬프트
     if family == "qwen":
         prompt = (
-            f"/no_think\n"
             f"You are a Korean translator for {department} academic slides.\n"
             f"Translate the English text into Korean. ONE LINE only. No lists. No explanations.\n"
             f"{glossary_hint}\n\n"
@@ -519,8 +517,8 @@ st.title("🎓 전공 맞춤형 강의자료 번역기")
 with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     st.markdown("""
     1. **로컬 엔진:** Ollama가 실행 중이어야 합니다 (`ollama serve`).
-    2. **모델 선택:** 저사양은 **qwen3:4b** (1순위) 또는 **llama3.2:3b**, 고사양은 **llama3**를 권장합니다.
-    3. **모델 설치:** `ollama pull qwen3:4b` / `ollama pull llama3.2:3b`
+    2. **모델 선택:** 저사양은 **qwen2.5:3b** (1순위) 또는 **llama3.2:3b**, 고사양은 **llama3**를 권장합니다.
+    3. **모델 설치:** `ollama pull qwen2.5:3b` / `ollama pull llama3.2:3b`
     4. **자동 감지 (기본값 ON):** 파일 첫 페이지를 분석해 전공을 자동 추론합니다.
     5. **수동 모드:** 자동 감지를 끄면 사이드바에서 직접 전공을 선택합니다.
     6. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
@@ -563,8 +561,8 @@ with tab2:
 st.divider()
 st.markdown("""
     <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        <p><b>Supported Models:</b> Alibaba Qwen3 · Meta Llama 3 / Llama 3.2</p>
-        <p>Qwen3: Qwen License © Alibaba Cloud |
+        <p><b>Supported Models:</b> Alibaba Qwen2.5 · Meta Llama 3 / Llama 3.2</p>
+        <p>Qwen2.5: Qwen License © Alibaba Cloud |
            Llama 3 & 3.2: Meta Llama Community License © Meta Platforms, Inc.</p>
     </div>
     """, unsafe_allow_html=True)
