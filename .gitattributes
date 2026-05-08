@@ -1,0 +1,4 @@
+* text=auto
+
+# Windows 배치 파일은 반드시 CRLF
+*.bat text eol=crlf
