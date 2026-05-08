@@ -540,10 +540,15 @@ with tab2:
 
 st.divider()
 st.markdown("""
-    <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        <p><b>Supported Models:</b> Meta Llama 3 / Llama 3.2 · Microsoft Phi-3 · Google Gemma 2</p>
-        <p>Llama 3 & 3.2: Meta Llama Community License © Meta Platforms, Inc. |
-           Phi-3: MIT License © Microsoft Corporation |
-           Gemma 2: Gemma Terms of Use © Google LLC</p>
+    <div style="text-align: center; color: gray; font-size: 0.8rem; line-height: 1.6;">
+        <p><b>Supported Models:</b> Meta Llama 3 / 3.2 · Microsoft Phi-3</p>
+        <p>
+            <b>Llama 3 & 3.2:</b> Meta Llama Community License © Meta Platforms, Inc.<br>
+            <b>Phi-3:</b> MIT License © Microsoft Corporation (Provided "AS IS")
+        </p>
+        <p style="font-size: 0.7rem; margin-top: 8px; opacity: 0.8;">
+            This application provides access to models under their respective licenses.<br>
+            All trademarks are the property of their respective owners.
+        </p>
     </div>
     """, unsafe_allow_html=True)
