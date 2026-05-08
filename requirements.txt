@@ -1,13 +1,12 @@
-# 문서 처리용
-python-pptx #ppt 처리
-pymupdf # pdf 처리
-FPDF
+# PDF 처리
+pymupdf
+fpdf2
+
+# PPT 처리
+python-pptx
 
 # AI 연결
-langchain_community
 langchain-ollama
 
-
-# 웹 화면 만들기
+# 웹 UI
 streamlit
-frontend
