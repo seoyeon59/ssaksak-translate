@@ -9,7 +9,7 @@ MODEL_NAME = "qwen2.5:3b"
 FONT_FILE  = "C:/Windows/Fonts/malgun.ttf"
 INPUT_PDF  = r"C:\Users\seoyeon\PycharmProjects\my_translator\Test Files\haeun.pdf"
 OUTPUT_PDF = r"C:\Users\seoyeon\PycharmProjects\my_translator\Test Files\translated_cs_lecture.pdf"
-TEST_PAGES = 30  # None = 전체, 숫자 = 처음 N페이지
+TEST_PAGES = None  # None = 전체, 숫자 = 처음 N페이지
 
 llm = OllamaLLM(model=MODEL_NAME, temperature=0, num_predict=150)
 cache = {}
