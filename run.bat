@@ -17,9 +17,7 @@ if errorlevel 1 (
     echo [ERROR] Python is not installed.
     echo Please install Python 3.10 or higher and run again.
     echo Download: https://www.python.org/downloads/
-    echo.
-    pause
-    exit /b 1
+    goto :error
 )
 for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
 echo [OK] Python !PY_VER! detected
@@ -36,8 +34,7 @@ if errorlevel 1 (
     curl -L -o "!INSTALLER!" "https://ollama.com/download/OllamaSetup.exe"
     if errorlevel 1 (
         echo [ERROR] Download failed. Please check your internet connection.
-        pause
-        exit /b 1
+        goto :error
     )
     echo Installing Ollama... (please wait)
     "!INSTALLER!" /silent
@@ -52,8 +49,7 @@ if errorlevel 1 (
         echo.
         echo [ERROR] Ollama installed but not recognized yet.
         echo Please close this window and run run.bat again.
-        pause
-        exit /b 1
+        goto :error
     )
     echo [OK] Ollama installed successfully
 ) else (
@@ -73,8 +69,7 @@ if errorlevel 1 (
     ollama pull qwen2.5:3b
     if errorlevel 1 (
         echo [ERROR] Failed to download qwen2.5:3b.
-        pause
-        exit /b 1
+        goto :error
     )
     echo [OK] qwen2.5:3b ready
 ) else (
@@ -87,8 +82,7 @@ if errorlevel 1 (
     ollama pull llama3.2:3b
     if errorlevel 1 (
         echo [ERROR] Failed to download llama3.2:3b.
-        pause
-        exit /b 1
+        goto :error
     )
     echo [OK] llama3.2:3b ready
 ) else (
@@ -107,8 +101,7 @@ if errorlevel 1 (
     pip install -r "%~dp0requirements.txt"
     if errorlevel 1 (
         echo [ERROR] Package installation failed.
-        pause
-        exit /b 1
+        goto :error
     )
     echo [OK] Packages installed
 ) else (
@@ -127,4 +120,16 @@ echo.
 timeout /t 2 > nul
 start "" http://localhost:8501
 streamlit run "%~dp0app.py"
+goto :end
+
+:error
+echo.
+echo ================================================
+echo  Setup failed. See error message above.
+echo ================================================
+echo.
+pause
+exit /b 1
+
+:end
 pause
