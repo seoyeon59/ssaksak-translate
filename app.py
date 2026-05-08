@@ -257,7 +257,23 @@ def is_english_content(text):
     total_alpha = sum(1 for c in text if c.isalpha())
     if total_alpha == 0 or ascii_alpha == 0:
         return False
-    return korean / total_alpha < 0.3  # 한국어 비율 30% 미만일 때만 번역
+    return korean / total_alpha < 0.3
+
+
+def is_code_block(text):
+    code_patterns = [
+        r'#include', r'\bint\s+\w+\s*\(', r'\bvoid\s+\w+\s*\(',
+        r'\bfor\s*\(', r'\bwhile\s*\(', r'\breturn\s+',
+        r'printf\s*\(', r'^\s*//', r'[{};]$',
+        r'->\w+', r'0x[0-9a-fA-F]+',
+        r'\bmov\w*\s+%', r'\bpush\b', r'\bpop\b',
+        r'\.text\b', r'\.data\b',
+    ]
+    lines = [l for l in text.split('\n') if l.strip()]
+    if len(lines) < 2:
+        return False
+    hits = sum(1 for line in lines if any(re.search(p, line) for p in code_patterns))
+    return hits / len(lines) > 0.35
 
 
 def detect_major_from_text(text, fallback_dept):
@@ -484,6 +500,8 @@ def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
             if len(raw_text) < 3 or not is_english_content(raw_text):
                 continue
 
+            if is_code_block(raw_text):
+                continue
             cleaned_text = raw_text.replace("\n", " ").strip()
             translated = translate_single(cleaned_text, dept)
 
@@ -565,9 +583,17 @@ with tab2:
 
 st.divider()
 st.markdown("""
-    <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        <p><b>Supported Models:</b> Alibaba Qwen2.5 · Meta Llama 3 / Llama 3.2</p>
-        <p>Qwen2.5: Qwen License © Alibaba Cloud |
-           Llama 3 & 3.2: Meta Llama Community License © Meta Platforms, Inc.</p>
+    <div style="text-align: center; color: gray; font-size: 0.75rem; line-height: 1.8;">
+        <p><b>Built with Qwen</b> · <b>Built with Llama</b> · <b>Built with Meta Llama 3</b></p>
+        <p>
+            <b>Qwen2.5</b>: Qwen Research License (비상업적/연구·평가 목적) © Alibaba Cloud. All Rights Reserved.<br>
+            <b>Llama 3.2</b>: Llama 3.2 Community License © Meta Platforms, Inc. All Rights Reserved.<br>
+            <b>Llama 3</b>: Meta Llama 3 Community License © Meta Platforms, Inc. All Rights Reserved.
+        </p>
+        <p style="font-size: 0.7rem; opacity: 0.75;">
+            ※ Qwen2.5 모델은 비상업적 용도(연구·교육·평가)로만 사용 가능합니다. 상업적 사용 시 Alibaba Cloud에 별도 라이선스를 요청하세요.<br>
+            ※ Llama 3 / 3.2 모델은 월간 활성 사용자 7억 명 미만의 서비스에 한해 상업적 사용이 허용됩니다.<br>
+            모든 데이터는 로컬 PC에서만 처리됩니다. 외부 서버로 전송되지 않습니다.
+        </p>
     </div>
     """, unsafe_allow_html=True)
