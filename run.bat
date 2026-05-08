@@ -1,120 +1,130 @@
 @echo off
-chcp 65001 > nul
-title EduTrans 설치 및 실행
+setlocal enabledelayedexpansion
+title EduTrans
+
+:: bat 파일이 있는 폴더 기준으로 실행 (어디서 더블클릭해도 동작)
+cd /d "%~dp0"
 
 echo ================================================
-echo  EduTrans - AI 강의 슬라이드 번역기
+echo  EduTrans - AI Lecture Slide Translator
 echo ================================================
 echo.
 
 :: ── 1. Python 확인 ──────────────────────────────
-echo [1/4] Python 확인 중...
+echo [1/4] Checking Python...
 python --version > nul 2>&1
 if errorlevel 1 (
-    echo [오류] Python이 설치되어 있지 않습니다.
-    echo Python 3.10 이상을 설치하고 다시 실행해주세요.
-    echo 다운로드: https://www.python.org/downloads/
+    echo [ERROR] Python is not installed.
+    echo Please install Python 3.10 or higher and run again.
+    echo Download: https://www.python.org/downloads/
+    echo.
     pause
     exit /b 1
 )
 for /f "tokens=2" %%v in ('python --version 2^>^&1') do set PY_VER=%%v
-echo [OK] Python %PY_VER% 감지됨
+echo [OK] Python !PY_VER! detected
 echo.
 
 :: ── 2. Ollama 확인 및 설치 ──────────────────────
-echo [2/4] Ollama 확인 중...
-ollama --version > nul 2>&1
+echo [2/4] Checking Ollama...
+where ollama > nul 2>&1
 if errorlevel 1 (
-    echo Ollama가 설치되어 있지 않습니다. 자동 설치를 시작합니다...
+    echo Ollama not found. Starting auto-install...
     echo.
-    set OLLAMA_INSTALLER=%TEMP%\ollama-installer.exe
-    echo 다운로드 중: https://ollama.com/download/OllamaSetup.exe
-    curl -L -o "%OLLAMA_INSTALLER%" "https://ollama.com/download/OllamaSetup.exe"
+    set "INSTALLER=!TEMP!\ollama-setup.exe"
+    echo Downloading Ollama installer...
+    curl -L -o "!INSTALLER!" "https://ollama.com/download/OllamaSetup.exe"
     if errorlevel 1 (
-        echo [오류] Ollama 다운로드 실패. 인터넷 연결을 확인해주세요.
+        echo [ERROR] Download failed. Please check your internet connection.
         pause
         exit /b 1
     )
-    echo 설치 중...
-    "%OLLAMA_INSTALLER%" /silent
-    timeout /t 5 > nul
-    del "%OLLAMA_INSTALLER%"
-    ollama --version > nul 2>&1
+    echo Installing Ollama... (please wait)
+    "!INSTALLER!" /silent
+    timeout /t 15 > nul
+    del "!INSTALLER!" 2>nul
+
+    :: 설치 후 PATH 새로고침
+    for /f "tokens=*" %%p in ('powershell -NoProfile -Command "[System.Environment]::GetEnvironmentVariable(\"PATH\",\"Machine\")"') do set "PATH=%%p;!PATH!"
+
+    where ollama > nul 2>&1
     if errorlevel 1 (
-        echo [오류] Ollama 설치 후에도 인식되지 않습니다.
-        echo 수동으로 https://ollama.com 에서 설치해주세요.
+        echo.
+        echo [ERROR] Ollama installed but not recognized yet.
+        echo Please close this window and run run.bat again.
         pause
         exit /b 1
     )
-    echo [OK] Ollama 설치 완료
+    echo [OK] Ollama installed successfully
 ) else (
-    for /f "tokens=*" %%v in ('ollama --version 2^>^&1') do echo [OK] %%v 감지됨
+    for /f "tokens=*" %%v in ('ollama --version 2^>^&1') do echo [OK] %%v detected
 )
 echo.
 
-:: ── 3. 저사양 모델 확인 및 다운로드 ─────────────
-echo [3/4] 기본 AI 모델 확인 중 (저사양 모델 미리 설치)...
-echo  - qwen2.5:3b  (약 2.0GB)
-echo  - llama3.2:3b (약 2.0GB)
+:: ── 3. 저사양 모델 다운로드 ──────────────────────
+echo [3/4] Checking AI models (pre-installing lightweight models)...
+echo   - qwen2.5:3b  (approx. 2.0GB)
+echo   - llama3.2:3b (approx. 2.0GB)
 echo.
 
 ollama list 2>nul | findstr /i "qwen2.5:3b" > nul
 if errorlevel 1 (
-    echo [qwen2.5:3b] 다운로드 중...
+    echo Downloading qwen2.5:3b...
     ollama pull qwen2.5:3b
     if errorlevel 1 (
-        echo [오류] qwen2.5:3b 다운로드 실패. 인터넷 연결을 확인해주세요.
+        echo [ERROR] Failed to download qwen2.5:3b.
         pause
         exit /b 1
     )
-    echo [OK] qwen2.5:3b 완료
+    echo [OK] qwen2.5:3b ready
 ) else (
-    echo [OK] qwen2.5:3b 이미 설치됨
+    echo [OK] qwen2.5:3b already installed
 )
 
 ollama list 2>nul | findstr /i "llama3.2:3b" > nul
 if errorlevel 1 (
-    echo [llama3.2:3b] 다운로드 중...
+    echo Downloading llama3.2:3b...
     ollama pull llama3.2:3b
     if errorlevel 1 (
-        echo [오류] llama3.2:3b 다운로드 실패. 인터넷 연결을 확인해주세요.
+        echo [ERROR] Failed to download llama3.2:3b.
         pause
         exit /b 1
     )
-    echo [OK] llama3.2:3b 완료
+    echo [OK] llama3.2:3b ready
 ) else (
-    echo [OK] llama3.2:3b 이미 설치됨
+    echo [OK] llama3.2:3b already installed
 )
 
 echo.
-echo  * 고사양 모델 (llama3) 은 앱에서 선택 시 자동으로 다운로드됩니다.
+echo   * llama3 (high-spec) will be downloaded automatically when selected in the app.
 echo.
 
 :: ── 4. Python 패키지 설치 ───────────────────────
-echo [4/4] Python 패키지 확인 중...
+echo [4/4] Checking Python packages...
 pip show streamlit > nul 2>&1
 if errorlevel 1 (
-    echo 패키지를 설치합니다...
-    pip install -r requirements.txt
+    echo Installing packages...
+    pip install -r "%~dp0requirements.txt"
     if errorlevel 1 (
-        echo [오류] 패키지 설치 실패.
+        echo [ERROR] Package installation failed.
         pause
         exit /b 1
     )
-    echo [OK] 패키지 설치 완료
+    echo [OK] Packages installed
 ) else (
-    echo [OK] 패키지 이미 설치됨
+    echo [OK] Packages already installed
 )
 echo.
 
 :: ── 앱 실행 ────────────────────────────────────
 echo ================================================
-echo  모든 준비 완료! 앱을 시작합니다...
-echo  브라우저에서 http://localhost:8501 이 열립니다.
-echo  종료하려면 이 창을 닫거나 Ctrl+C 를 누르세요.
+echo  Ready! Starting EduTrans...
+echo  Browser will open at http://localhost:8501
+echo  Press Ctrl+C or close this window to stop.
 echo ================================================
 echo.
 
+timeout /t 2 > nul
 start "" http://localhost:8501
-streamlit run app.py
+streamlit run "%~dp0app.py"
 pause
