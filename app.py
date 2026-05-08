@@ -73,12 +73,12 @@ MODEL_INFO = {
         "desc": "저사양 최적 선택. phi3보다 한국어 품질이 확실히 좋습니다.",
         "family": "llama",
     },
-    "qwen3.6": {
-        "label": "qwen3.6 ⭐ 저사양 추천",
-        "ram": "~5GB RAM",
+    "qwen3:4b": {
+        "label": "qwen3:4b ⭐ 저사양 추천",
+        "ram": "~3GB RAM",
         "quality": "번역 품질 ★★★★★",
         "speed": "속도 ★★★★☆",
-        "desc": "Alibaba Qwen3 모델. 한국어 번역 품질이 매우 뛰어나며 저사양에서도 동작합니다.",
+        "desc": "Alibaba Qwen3 4B 모델. 한국어 번역 품질이 매우 뛰어나며 저사양(3GB RAM)에서 동작합니다.",
         "family": "qwen",
     },
     "phi3": {
