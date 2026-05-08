@@ -63,14 +63,55 @@ def get_system_font():
 FONT_FILE_PATH, FONT_NAME = get_system_font()
 
 
+# 모델별 스펙 정보
+MODEL_INFO = {
+    "llama3.2:3b": {
+        "label": "llama3.2:3b ⭐ 저사양 추천",
+        "ram": "~4GB RAM",
+        "quality": "번역 품질 ★★★★☆",
+        "speed": "속도 ★★★★★",
+        "desc": "저사양 최적 선택. phi3보다 한국어 품질이 확실히 좋습니다.",
+        "family": "llama",
+    },
+    "gemma2:2b": {
+        "label": "gemma2:2b ⭐ 저사양 추천",
+        "ram": "~3GB RAM",
+        "quality": "번역 품질 ★★★★☆",
+        "speed": "속도 ★★★★★",
+        "desc": "Google Gemma 경량 모델. 한국어 자연스러움이 좋습니다.",
+        "family": "gemma",
+    },
+    "phi3": {
+        "label": "phi3",
+        "ram": "~4GB RAM",
+        "quality": "번역 품질 ★★☆☆☆",
+        "speed": "속도 ★★★★★",
+        "desc": "Microsoft 경량 모델. 한국어 번역 품질이 낮아 비권장.",
+        "family": "phi",
+    },
+    "llama3": {
+        "label": "llama3 ⭐ 고사양 추천",
+        "ram": "~8GB RAM",
+        "quality": "번역 품질 ★★★★★",
+        "speed": "속도 ★★★☆☆",
+        "desc": "가장 높은 번역 품질. GPU 8GB 이상 고사양 환경 권장.",
+        "family": "llama",
+    },
+}
+
 # --- [2. 사이드바 UI] ---
 with st.sidebar:
     st.header("⚙️ 엔진 설정")
     selected_model = st.selectbox(
         "사용할 AI 모델 선택",
-        ["phi3", "llama3"],
+        list(MODEL_INFO.keys()),
         index=0,
-        help="저사양(8GB RAM)은 phi3를, 고사양(GPU 8GB+)은 llama3를 권장합니다."
+        format_func=lambda m: MODEL_INFO[m]["label"],
+    )
+
+    info = MODEL_INFO[selected_model]
+    st.caption(
+        f"{info['ram']} | {info['quality']} | {info['speed']}\n\n{info['desc']}"
     )
 
     llm = OllamaLLM(model=selected_model, temperature=0, num_predict=150)
@@ -298,8 +339,11 @@ def translate_single(text, department):
     # 4. glossary hint 생성
     glossary_hint = build_glossary_hint(glossary, selected_model)
 
-    # 5. 모델별 프롬프트 분기
-    if selected_model == "llama3":
+    # 5. 모델 패밀리별 프롬프트 분기
+    model_family = MODEL_INFO.get(selected_model, {}).get("family", "llama")
+
+    if model_family in ("llama", "gemma"):
+        # llama3, llama3.2:3b, gemma2:2b 공통 프롬프트
         prompt = (
             f"You are a professional Korean translator specializing in {department}.\n"
             f"Translate the English text below into natural Korean.\n"
@@ -312,7 +356,7 @@ def translate_single(text, department):
         )
         stop_param = ["\nEnglish:", "\n\n"]
     else:
-        # Phi-3: 영어 지시문으로 변경 (한국어 지시문이 혼란 유발)
+        # phi3: 영어 지시문 사용 (한국어 지시문이 혼란 유발)
         prompt = (
             f"You are a Korean translator for {department} academic content.\n"
             f"Translate the text below into Korean. Output ONLY Korean text.\n"
@@ -483,8 +527,9 @@ with tab2:
 st.divider()
 st.markdown("""
     <div style="text-align: center; color: gray; font-size: 0.8rem;">
-        <p><b>Built with Meta Llama 3</b> | Powered by Microsoft Phi-3</p>
-        <p>Meta Llama 3 is licensed under the Meta Llama 3 Community License. Copyright © Meta Platforms, Inc.</p>
-        <p>Phi-3 is licensed under the MIT License. Copyright © Microsoft Corporation.</p>
+        <p><b>Supported Models:</b> Meta Llama 3 / Llama 3.2 · Microsoft Phi-3 · Google Gemma 2</p>
+        <p>Llama 3 & 3.2: Meta Llama Community License © Meta Platforms, Inc. |
+           Phi-3: MIT License © Microsoft Corporation |
+           Gemma 2: Gemma Terms of Use © Google LLC</p>
     </div>
     """, unsafe_allow_html=True)
