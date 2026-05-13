@@ -16,6 +16,12 @@ def resource_path(relative_path):
 
 def run_streamlit():
     app_path = resource_path('app.py')
+
+    # PyInstaller frozen 모드에서 Streamlit 정적 파일 경로 수동 지정
+    if getattr(sys, 'frozen', False):
+        static_path = resource_path(os.path.join('streamlit', 'static'))
+        os.environ['STREAMLIT_STATIC_PATH'] = static_path
+
     sys.argv = [
         "streamlit",
         "run",
@@ -24,7 +30,15 @@ def run_streamlit():
         "--server.port=8501",
         "--server.enableCORS=false",
         "--server.enableXsrfProtection=false",
+        "--server.fileWatcherType=none",  # frozen 환경에서 파일 감시 비활성화
     ]
+
+    # windowed 모드에서 stdout/stderr 리다이렉트 (없으면 crash)
+    if getattr(sys, 'frozen', False):
+        log_path = os.path.join(os.path.dirname(sys.executable), 'edutrans.log')
+        sys.stdout = open(log_path, 'w', encoding='utf-8')
+        sys.stderr = sys.stdout
+
     from streamlit.web import cli as stcli
     stcli.main()
 
@@ -41,16 +55,20 @@ def wait_for_server(url, timeout=30):
 
 
 if __name__ == "__main__":
-    # Streamlit을 백그라운드 스레드에서 실행
     t = threading.Thread(target=run_streamlit, daemon=True)
     t.start()
 
-    # 서버가 실제로 응답할 때까지 대기
     if wait_for_server("http://localhost:8501", timeout=30):
         webbrowser.open("http://localhost:8501")
     else:
-        print("서버 시작 실패. Ollama가 실행 중인지 확인하세요.")
+        # 서버 시작 실패 시 로그 위치 안내
+        if getattr(sys, 'frozen', False):
+            log_path = os.path.join(os.path.dirname(sys.executable), 'edutrans.log')
+            import tkinter.messagebox as mb
+            mb.showerror(
+                "EduTrans 오류",
+                f"서버 시작에 실패했습니다.\n오류 로그: {log_path}"
+            )
         sys.exit(1)
 
-    # 메인 스레드 유지 (창 닫힐 때까지)
     t.join()
