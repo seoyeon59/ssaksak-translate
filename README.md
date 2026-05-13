@@ -31,7 +31,7 @@
 ### 설치 및 실행
 
 1. [Releases](https://github.com/seoyeon59/EduTrans/releases)에서 최신 버전 zip 다운로드
-2. 압축 해제 후 `run.bat` **우클릭 → 관리자 권한으로 실행**
+2. 압축 해제 후 `EduTrans.exe` **우클릭 → 관리자 권한으로 실행**
 3. 자동으로 아래 과정이 진행됩니다:
    - Ollama 설치 (미설치 시)
    - AI 모델 다운로드 (`qwen2.5:3b`, `llama3.2:3b` — 최초 1회, 약 4GB)
