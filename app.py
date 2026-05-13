@@ -554,6 +554,13 @@ with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
 tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
 
 
+def get_save_path(filename):
+    """Downloads 폴더에 저장 경로 생성"""
+    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    os.makedirs(downloads, exist_ok=True)
+    return os.path.join(downloads, f"translated_{filename}")
+
+
 def run_translation(uploaded_file, mode):
     if uploaded_file:
         if st.button(f"🚀 {mode} 번역 시작"):
@@ -562,16 +569,30 @@ def run_translation(uploaded_file, mode):
                 tmp_in.write(uploaded_file.getvalue())
                 in_path = tmp_in.name
 
-            out_path = os.path.join(tempfile.gettempdir(), f"translated_{uploaded_file.name}")
+            out_filename = f"translated_{uploaded_file.name}"
+            out_path = get_save_path(uploaded_file.name)
+
             try:
                 with st.spinner(f"{selected_model} 모델 번역 중..."):
                     if mode == "PPTX":
                         process_pptx(in_path, out_path, manual_dept, auto_detect)
                     else:
                         process_pdf(in_path, out_path, manual_dept, auto_detect)
-                st.success("✅ 처리가 완료되었습니다!")
-                with open(out_path, "rb") as f:
-                    st.download_button("💾 결과 다운로드", f, file_name=f"translated_{uploaded_file.name}")
+
+                st.success(f"✅ 번역 완료!")
+                st.info(f"📁 저장 위치: `{out_path}`")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
+                        os.startfile(os.path.dirname(out_path))
+                with col2:
+                    # 브라우저 사용자를 위한 다운로드 버튼도 유지
+                    with open(out_path, "rb") as f:
+                        st.download_button("💾 직접 다운로드", f,
+                                           file_name=out_filename,
+                                           key=f"dl_{mode}")
+
             except Exception as e:
                 st.error(f"오류 발생: {e}")
             finally:
