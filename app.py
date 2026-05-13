@@ -70,7 +70,7 @@ FONT_FILE_PATH, FONT_NAME = get_system_font()
 # --- [모델 정보] ---
 MODEL_INFO = {
     "qwen2.5:3b": {
-        "label": "qwen2.5:3b ⭐ 저사양 1순위",
+        "label": "qwen2.5:3b",
         "ram": "~2GB RAM",
         "quality": "번역 품질 ★★★★★",
         "speed": "속도 ★★★★☆",
@@ -80,7 +80,7 @@ MODEL_INFO = {
         "stop": ["\nEnglish:", "\n"],
     },
     "llama3.2:3b": {
-        "label": "llama3.2:3b ⭐ 저사양 2순위",
+        "label": "llama3.2:3b",
         "ram": "~2GB RAM",
         "quality": "번역 품질 ★★★★☆",
         "speed": "속도 ★★★★★",
@@ -592,11 +592,10 @@ st.markdown("""
         <p>
             <b>Qwen2.5</b>: Qwen Research License (비상업적/연구·평가 목적) © Alibaba Cloud. All Rights Reserved.<br>
             <b>Llama 3.2</b>: Llama 3.2 Community License © Meta Platforms, Inc. All Rights Reserved.<br>
-            <b>Llama 3</b>: Meta Llama 3 Community License © Meta Platforms, Inc. All Rights Reserved.
         </p>
         <p style="font-size: 0.7rem; opacity: 0.75;">
             ※ Qwen2.5 모델은 비상업적 용도(연구·교육·평가)로만 사용 가능합니다. 상업적 사용 시 Alibaba Cloud에 별도 라이선스를 요청하세요.<br>
-            ※ Llama 3 / 3.2 모델은 월간 활성 사용자 7억 명 미만의 서비스에 한해 상업적 사용이 허용됩니다.<br>
+            ※ Llama 3.2 모델은 월간 활성 사용자 7억 명 미만의 서비스에 한해 상업적 사용이 허용됩니다.<br>
             모든 데이터는 로컬 PC에서만 처리됩니다. 외부 서버로 전송되지 않습니다.
         </p>
     </div>
