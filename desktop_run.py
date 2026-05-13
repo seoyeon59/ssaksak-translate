@@ -2,11 +2,21 @@ import sys
 import os
 import threading
 import time
-import webbrowser
 import subprocess
 import urllib.request
 import tkinter as tk
 from tkinter import ttk, messagebox
+
+
+# ── Streamlit signal 핸들러 패치 (백그라운드 스레드 실행 대응) ──
+def _patch_streamlit_signal():
+    try:
+        import streamlit.web.bootstrap as _bootstrap
+        _bootstrap._set_up_signal_handler = lambda server: None
+    except Exception:
+        pass
+
+_patch_streamlit_signal()
 
 
 # ── 경로 유틸 ────────────────────────────────────
@@ -18,7 +28,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-# ── 진행 상황 팝업 창 (mainloop 없이 update()로 구동) ──
+# ── 진행 상황 팝업 창 ─────────────────────────────
 class SetupWindow:
     def __init__(self):
         self.root = tk.Tk()
@@ -29,10 +39,8 @@ class SetupWindow:
 
         tk.Label(self.root, text="EduTrans 준비 중입니다...",
                  font=("맑은 고딕", 11, "bold")).pack(pady=(20, 8))
-
         self.label = tk.Label(self.root, text="초기화 중...", font=("맑은 고딕", 9))
         self.label.pack()
-
         self.bar = ttk.Progressbar(self.root, length=360, mode='indeterminate')
         self.bar.pack(pady=10)
         self.bar.start(10)
@@ -51,7 +59,6 @@ class SetupWindow:
 def ensure_ollama(win):
     import shutil
     win.update("Ollama 확인 중...")
-
     if shutil.which("ollama"):
         win.update("[OK] Ollama 이미 설치됨")
         return True
@@ -59,10 +66,7 @@ def ensure_ollama(win):
     win.update("Ollama 다운로드 중... (잠시 기다려주세요)")
     installer_path = os.path.join(os.environ.get("TEMP", "."), "ollama-setup.exe")
     try:
-        urllib.request.urlretrieve(
-            "https://ollama.com/download/OllamaSetup.exe",
-            installer_path
-        )
+        urllib.request.urlretrieve("https://ollama.com/download/OllamaSetup.exe", installer_path)
         win.update("Ollama 설치 중...")
         subprocess.run([installer_path, "/silent"], check=True)
         time.sleep(10)
@@ -79,7 +83,7 @@ def ensure_ollama(win):
             win.update("[OK] Ollama 설치 완료")
             return True
         else:
-            messagebox.showerror("오류", "Ollama 설치 후 인식 실패.\n이 창을 닫고 EduTrans.exe를 다시 실행해주세요.")
+            messagebox.showerror("오류", "Ollama 설치 후 인식 실패.\n창을 닫고 EduTrans.exe를 다시 실행해주세요.")
             return False
     except Exception as e:
         messagebox.showerror("오류", f"Ollama 설치 실패:\n{e}")
@@ -102,24 +106,12 @@ def ensure_models(win):
             subprocess.run(["ollama", "pull", model])
         else:
             win.update(f"[OK] {model} 이미 설치됨")
-        time.sleep(0.5)
+        time.sleep(0.3)
     return True
 
 
-# ── 브라우저 오픈 (서버 응답 확인 후) ─────────────
-def open_browser_when_ready():
-    url = "http://localhost:8501"
-    for _ in range(60):
-        try:
-            urllib.request.urlopen(url, timeout=1)
-            webbrowser.open(url)
-            return
-        except Exception:
-            time.sleep(0.5)
-
-
-# ── Streamlit 실행 (반드시 메인 스레드에서 호출) ──
-def run_streamlit():
+# ── Streamlit 백그라운드 실행 ─────────────────────
+def run_streamlit(port):
     app_path = resource_path('app.py')
 
     if getattr(sys, 'frozen', False):
@@ -130,7 +122,7 @@ def run_streamlit():
         "streamlit", "run", app_path,
         "--global.developmentMode=false",
         "--server.headless=true",
-        "--server.port=8501",
+        f"--server.port={port}",
         "--server.enableCORS=false",
         "--server.enableXsrfProtection=false",
         "--server.fileWatcherType=none",
@@ -139,9 +131,26 @@ def run_streamlit():
     stcli.main()
 
 
+def find_free_port():
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+
+def wait_for_server(port, timeout=30):
+    for _ in range(timeout * 2):
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}", timeout=1)
+            return True
+        except Exception:
+            time.sleep(0.5)
+    return False
+
+
 # ── 메인 ─────────────────────────────────────────
 if __name__ == "__main__":
-    # 1. 설치 GUI (메인 스레드, mainloop 없이)
+    # 1. 설치 팝업
     win = SetupWindow()
 
     if not ensure_ollama(win):
@@ -153,10 +162,29 @@ if __name__ == "__main__":
         sys.exit(1)
 
     win.update("앱 서버 시작 중...")
-    win.close()  # tkinter 종료 → 메인 스레드 반환
 
-    # 2. 브라우저 오픈은 백그라운드 스레드
-    threading.Thread(target=open_browser_when_ready, daemon=True).start()
+    # 2. 빈 포트 찾기
+    port = find_free_port()
 
-    # 3. Streamlit은 메인 스레드에서 실행 (signal 처리 정상 작동)
-    run_streamlit()
+    # 3. Streamlit을 백그라운드 스레드에서 실행 (signal 패치로 오류 방지)
+    t = threading.Thread(target=run_streamlit, args=(port,), daemon=True)
+    t.start()
+
+    # 4. 서버 응답 대기
+    if not wait_for_server(port, timeout=30):
+        win.close()
+        messagebox.showerror("오류", "서버 시작 실패. 다시 실행해주세요.")
+        sys.exit(1)
+
+    win.close()  # 팝업 닫기
+
+    # 5. pywebview로 데스크탑 창 열기 (메인 스레드)
+    import webview
+    webview.create_window(
+        "EduTrans - 강의자료 번역기",
+        f"http://localhost:{port}",
+        width=1280,
+        height=860,
+        resizable=True,
+    )
+    webview.start()
