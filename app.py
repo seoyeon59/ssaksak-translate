@@ -40,6 +40,12 @@ def get_merged_glossary(dept, user_glossary):
     return base
 
 
+# 기본 사전과 사용자 사전을 병합하는 로직 강화
+def get_merged_glossary(dept, user_glossary):
+    base = dict(DEFAULT_GLOSSARY.get(dept, {}))
+    base.update(user_glossary.get(dept, {}))
+    return base
+
 # 세션 상태 초기화
 if "translation_cache" not in st.session_state:
     st.session_state["translation_cache"] = {}
@@ -98,6 +104,36 @@ MODEL_INFO = {
 
 
 # --- [2. 사이드바 UI] ---
+# 코드 블록 판별 로직 강화 (어셈블리, C언어 패턴 추가)
+def is_code_block(text):
+    code_patterns = [
+        r'#include', r'\bint\s+\w+\s*\(', r'\bvoid\s+\w+\s*\(',
+        r'\bfor\s*\(', r'\bwhile\s*\(', r'\breturn\s+',
+        r'printf\s*\(', r'^\s*//', r'[{};]$',
+        r'->\w+', r'0x[0-9a-fA-F]+', r'\bmov\w*\s+%',
+    ]
+    lines = [l for l in text.split('\n') if l.strip()]
+    if not lines: return False
+    hits = sum(1 for line in lines if any(re.search(p, line) for p in code_patterns))
+    return hits / len(lines) > 0.3  # 30% 이상 코드 패턴이면 코드 블록으로 간주
+
+
+# 과해석 및 사족 제거를 위한 후처리 로직 강화
+def post_process(translated, original):
+    translated = re.sub(r"<think>.*?</think>", "", translated, flags=re.DOTALL).strip()
+    trash_phrases = [
+        r"^here is the translation:?", r"^translated text:?", r"^korean:?",
+        r"^번역\s*:", r"^결과\s*:", r"^해석\s*:", r"^output\s*:"
+    ]
+    for phrase in trash_phrases:
+        translated = re.sub(phrase, "", translated, flags=re.IGNORECASE).strip()
+
+    # 원문과 똑같거나 비어있으면 무시
+    if not translated or translated.lower() == original.lower():
+        return ""
+    return translated
+
+
 with st.sidebar:
     st.header("⚙️ 엔진 설정")
     selected_model = st.selectbox(
