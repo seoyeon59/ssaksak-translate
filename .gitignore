@@ -1,0 +1,29 @@
+# === Python 관련 ===
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# === 빌드 결과물 (PyInstaller) ===
+build/
+dist/
+*.spec
+
+# === 앱 실행 데이터 (사용자 개인 정보 보호) ===
+# 사용자가 직접 수정한 용어 사전은 깃허브에 올리지 않습니다.
+user_glossary.json
+
+# === 번역 임시 파일 ===
+# 번역 과정에서 생성되는 임시 PDF/PPTX 및 결과물 제외
+translated_*
+temp_*
+*.tmp
+
+# === IDE 관련 (PyCharm, VS Code) ===
+.idea/
+.vscode/
+
+# === OS 관련 ===
+.DS_Store
+Thumbs.db
