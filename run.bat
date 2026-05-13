@@ -10,6 +10,18 @@ echo  EduTrans - AI Lecture Slide Translator
 echo ================================================
 echo.
 
+:: ── zip 미해제 감지 ──────────────────────────────
+if not exist "%~dp0app.py" (
+    echo [ERROR] app.py not found. Please extract the zip file first.
+    echo.
+    echo  How to fix:
+    echo   1. Right-click the zip file
+    echo   2. Select "Extract All"
+    echo   3. Run run.bat from the extracted folder
+    echo.
+    goto :error
+)
+
 :: ── 1. Python 확인 ──────────────────────────────
 echo [1/4] Checking Python...
 python --version > nul 2>&1
@@ -53,7 +65,7 @@ if errorlevel 1 (
     )
     echo [OK] Ollama installed successfully
 ) else (
-    for /f "tokens=*" %%v in ('ollama --version 2^>^&1') do echo [OK] %%v detected
+    echo [OK] Ollama already installed
 )
 echo.
 
