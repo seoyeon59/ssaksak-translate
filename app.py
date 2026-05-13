@@ -5,7 +5,6 @@ import re
 import json
 import unicodedata
 import tempfile
-import subprocess
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
@@ -90,16 +89,6 @@ MODEL_INFO = {
         "num_predict": 120,
         "stop": ["\nEnglish:", "\n"],
     },
-    "llama3": {
-        "label": "llama3 ⭐ 고사양 추천",
-        "ram": "~8GB RAM",
-        "quality": "번역 품질 ★★★★★",
-        "speed": "속도 ★★★☆☆",
-        "desc": "Meta Llama 3 8B. 최고 품질. GPU 8GB 이상 고사양 환경 권장.",
-        "family": "llama",
-        "num_predict": 180,
-        "stop": ["\nEnglish:", "\n\n"],
-    },
 }
 
 
@@ -145,15 +134,6 @@ with st.sidebar:
 
     info = MODEL_INFO[selected_model]
     st.caption(f"{info['ram']} | {info['quality']} | {info['speed']}\n\n{info['desc']}")
-
-    # 고사양 모델은 첫 선택 시 자동 다운로드
-    ON_DEMAND_MODELS = ["llama3"]
-    if selected_model in ON_DEMAND_MODELS:
-        result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
-        if selected_model not in result.stdout:
-            with st.spinner(f"⬇️ {selected_model} 모델을 다운로드 중입니다... (최초 1회, 약 4.7GB)"):
-                subprocess.run(["ollama", "pull", selected_model], check=True)
-            st.success(f"{selected_model} 다운로드 완료!")
 
     llm = OllamaLLM(
         model=selected_model,
@@ -543,8 +523,8 @@ st.title("🎓 전공 맞춤형 강의자료 번역기")
 with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     st.markdown("""
     1. **로컬 엔진:** Ollama가 실행 중이어야 합니다 (`ollama serve`).
-    2. **모델 선택:** 저사양은 **qwen2.5:3b** (1순위) 또는 **llama3.2:3b**, 고사양은 **llama3**를 권장합니다.
-    3. **모델 설치:** `ollama pull qwen2.5:3b` / `ollama pull llama3.2:3b`
+    2. **모델 선택:** **qwen2.5:3b** (1순위, 번역 품질 최고) 또는 **llama3.2:3b** (2순위, 속도 최고)를 권장합니다.
+    3. **모델 설치:** 앱 시작 시 두 모델이 자동으로 설치됩니다.
     4. **자동 감지 (기본값 ON):** 파일 첫 페이지를 분석해 전공을 자동 추론합니다.
     5. **수동 모드:** 자동 감지를 끄면 사이드바에서 직접 전공을 선택합니다.
     6. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
