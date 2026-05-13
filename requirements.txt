@@ -10,3 +10,4 @@ langchain-ollama
 
 # 웹 UI
 streamlit
+pywebview
