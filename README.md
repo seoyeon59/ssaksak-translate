@@ -46,9 +46,8 @@
 
 | 모델 | 분류 | 권장 환경 | 특징 |
 |------|------|-----------|------|
-| **qwen2.5:3b** | 저사양 1순위 ⭐ | RAM 8GB+ | 저사양 환경 최고 번역 품질 |
-| **llama3.2:3b** | 저사양 2순위 | RAM 8GB+ | 가장 빠름 |
-| **llama3 (8B)** | 고사양 추천 | RAM 16GB / GPU 8GB+ | 최고 품질, 앱에서 선택 시 자동 다운로드 |
+| **qwen2.5:3b** | RAM 8GB+ | 최고 번역 품질 |
+| **llama3.2:3b** | RAM 8GB+ | 빠름 |
 
 ---
 
@@ -70,8 +69,9 @@
 EduTrans/
 ├── app.py            # 메인 Streamlit 앱
 ├── glossary.py       # 전공별 용어 사전
+├── build_run.py      # 데스크탑 생상
 ├── requirements.txt  # Python 패키지 목록
-└── run.bat           # 설치 및 실행 스크립트 (Windows)
+└── build_exe.bat           # 설치 및 실행 스크립트 (Windows)
 ```
 
 ---
@@ -82,5 +82,5 @@ EduTrans/
 
 - **Qwen2.5** — [Qwen Research License](https://huggingface.co/Qwen/Qwen2.5-3B/blob/main/LICENSE)  
   비상업적·연구·교육 목적에 한함 © Alibaba Cloud
-- **Llama 3 / 3.2** — [Meta Llama Community License](https://llama.meta.com/llama3/license/)  
+- **Llama 3.2** — [Meta Llama Community License](https://llama.meta.com/llama3/license/)  
   월간 활성 사용자 7억 명 미만 서비스에 한해 상업적 사용 허용 © Meta Platforms, Inc.
