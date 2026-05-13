@@ -2,21 +2,20 @@ import sys
 import os
 import threading
 import time
-import webview
+import webbrowser
 
 
-def get_app_path():
-    """exe로 실행할 때와 일반 실행 때 모두 app.py 경로를 올바르게 반환"""
+def resource_path(relative_path):
+    """PyInstaller .exe 내부 경로와 일반 실행 경로 모두 처리"""
     if getattr(sys, 'frozen', False):
-        # PyInstaller로 패키징된 .exe 실행 시
-        return os.path.join(os.path.dirname(sys.executable), 'app.py')
+        base_path = sys._MEIPASS
     else:
-        # 일반 python 실행 시
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.py')
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 
-def run_streamlit(app_path):
-    """Streamlit을 subprocess 없이 내부에서 직접 실행"""
+def run_streamlit():
+    app_path = resource_path('app.py')
     sys.argv = [
         "streamlit",
         "run",
@@ -31,7 +30,6 @@ def run_streamlit(app_path):
 
 
 def wait_for_server(url, timeout=30):
-    """서버가 응답할 때까지 대기 (최대 timeout초)"""
     import urllib.request
     for _ in range(timeout * 2):
         try:
@@ -43,32 +41,16 @@ def wait_for_server(url, timeout=30):
 
 
 if __name__ == "__main__":
-    app_path = get_app_path()
-
-    if not os.path.exists(app_path):
-        import tkinter.messagebox as mb
-        mb.showerror("EduTrans 오류", f"app.py를 찾을 수 없습니다.\n경로: {app_path}")
-        sys.exit(1)
-
     # Streamlit을 백그라운드 스레드에서 실행
-    t = threading.Thread(target=run_streamlit, args=(app_path,), daemon=True)
+    t = threading.Thread(target=run_streamlit, daemon=True)
     t.start()
 
     # 서버가 실제로 응답할 때까지 대기
-    print("서버 시작 중...")
-    ready = wait_for_server("http://localhost:8501", timeout=30)
-
-    if not ready:
-        import tkinter.messagebox as mb
-        mb.showerror("EduTrans 오류", "서버 시작 실패. Ollama가 실행 중인지 확인해주세요.")
+    if wait_for_server("http://localhost:8501", timeout=30):
+        webbrowser.open("http://localhost:8501")
+    else:
+        print("서버 시작 실패. Ollama가 실행 중인지 확인하세요.")
         sys.exit(1)
 
-    # 웹뷰 창 열기
-    webview.create_window(
-        "EduTrans - 강의자료 번역기",
-        "http://localhost:8501",
-        width=1200,
-        height=800,
-        resizable=True,
-    )
-    webview.start()
+    # 메인 스레드 유지 (창 닫힐 때까지)
+    t.join()
