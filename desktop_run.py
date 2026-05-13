@@ -18,7 +18,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-# ── 진행 상황 팝업 창 ─────────────────────────────
+# ── 진행 상황 팝업 창 (mainloop 없이 update()로 구동) ──
 class SetupWindow:
     def __init__(self):
         self.root = tk.Tk()
@@ -36,6 +36,7 @@ class SetupWindow:
         self.bar = ttk.Progressbar(self.root, length=360, mode='indeterminate')
         self.bar.pack(pady=10)
         self.bar.start(10)
+        self.root.update()
 
     def update(self, msg):
         self.label.config(text=msg)
@@ -67,7 +68,6 @@ def ensure_ollama(win):
         time.sleep(10)
         os.remove(installer_path)
 
-        # PATH 갱신 후 재확인
         new_path = subprocess.run(
             ["powershell", "-NoProfile", "-Command",
              "[System.Environment]::GetEnvironmentVariable('PATH','Machine')"],
@@ -106,16 +106,25 @@ def ensure_models(win):
     return True
 
 
-# ── Streamlit 실행 ────────────────────────────────
+# ── 브라우저 오픈 (서버 응답 확인 후) ─────────────
+def open_browser_when_ready():
+    url = "http://localhost:8501"
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(url, timeout=1)
+            webbrowser.open(url)
+            return
+        except Exception:
+            time.sleep(0.5)
+
+
+# ── Streamlit 실행 (반드시 메인 스레드에서 호출) ──
 def run_streamlit():
     app_path = resource_path('app.py')
 
     if getattr(sys, 'frozen', False):
         static_path = resource_path(os.path.join('streamlit', 'static'))
         os.environ['STREAMLIT_STATIC_PATH'] = static_path
-        log_path = os.path.join(os.path.dirname(sys.executable), 'edutrans.log')
-        sys.stdout = open(log_path, 'w', encoding='utf-8')
-        sys.stderr = sys.stdout
 
     sys.argv = [
         "streamlit", "run", app_path,
@@ -130,43 +139,24 @@ def run_streamlit():
     stcli.main()
 
 
-def wait_for_server(url, timeout=30):
-    for _ in range(timeout * 2):
-        try:
-            urllib.request.urlopen(url, timeout=1)
-            return True
-        except Exception:
-            time.sleep(0.5)
-    return False
-
-
 # ── 메인 ─────────────────────────────────────────
 if __name__ == "__main__":
+    # 1. 설치 GUI (메인 스레드, mainloop 없이)
     win = SetupWindow()
 
-    # 1. Ollama 확인/설치
     if not ensure_ollama(win):
         win.close()
         sys.exit(1)
 
-    # 2. 모델 확인/다운로드
     if not ensure_models(win):
         win.close()
         sys.exit(1)
 
-    # 3. Streamlit 서버 시작
     win.update("앱 서버 시작 중...")
-    t = threading.Thread(target=run_streamlit, daemon=True)
-    t.start()
+    win.close()  # tkinter 종료 → 메인 스레드 반환
 
-    # 4. 서버 응답 대기
-    if wait_for_server("http://localhost:8501", timeout=30):
-        win.close()
-        webbrowser.open("http://localhost:8501")
-    else:
-        win.close()
-        log_path = os.path.join(os.path.dirname(sys.executable), 'edutrans.log')
-        messagebox.showerror("오류", f"서버 시작 실패.\n로그 확인: {log_path}")
-        sys.exit(1)
+    # 2. 브라우저 오픈은 백그라운드 스레드
+    threading.Thread(target=open_browser_when_ready, daemon=True).start()
 
-    t.join()
+    # 3. Streamlit은 메인 스레드에서 실행 (signal 처리 정상 작동)
+    run_streamlit()
