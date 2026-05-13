@@ -111,6 +111,10 @@ DEFAULT_GLOSSARY = {
         "Data Augmentation": "데이터 증강",
         "Synthetic Data": "합성 데이터",
         "Model Interpretability": "모델 해석 가능성",
+        "int": "int",
+        "float": "float",
+        "string": "string",
+        "boolen": "boolen",
     },
 
     "Artificial Intelligence Engineering": {
@@ -214,6 +218,10 @@ DEFAULT_GLOSSARY = {
         "Semantic Search": "의미 검색",
         "Autonomous Driving": "자율주행",
         "Robotics": "로보틱스",
+        "int": "int",
+        "float": "float",
+        "string": "string",
+        "boolen": "boolen",
     },
 
     "Computer Science": {
@@ -317,6 +325,11 @@ DEFAULT_GLOSSARY = {
         "UML": "UML(통합 모델링 언어)",
         "Concurrency Control": "동시성 제어",
         "Load Balancing": "부하 분산",
+        "int": "int",
+        "float": "float",
+        "string": "string",
+        "boolen": "boolen",
+
     },
 
     "Electrical Engineering": {
