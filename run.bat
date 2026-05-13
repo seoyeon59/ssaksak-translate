@@ -118,14 +118,12 @@ echo.
 :: ── 앱 실행 ────────────────────────────────────
 echo ================================================
 echo  Ready! Starting EduTrans...
-echo  Browser will open at http://localhost:8501
-echo  Press Ctrl+C or close this window to stop.
+echo  Close the app window to stop.
 echo ================================================
 echo.
 
 timeout /t 2 > nul
-start "" http://localhost:8501
-streamlit run "%~dp0app.py"
+python "%~dp0desktop_run.py"
 goto :end
 
 :error
