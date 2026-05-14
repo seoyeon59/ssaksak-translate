@@ -1,9 +1,9 @@
 @echo off
 echo Building 싹싹번역.exe...
 
-pip install pyinstaller pywebview > nul
+pip install pyinstaller > nul
 
-pyinstaller --noconfirm --onedir --windowed ^
+pyinstaller --noconfirm --onefile --windowed ^
   --name "싹싹번역" ^
   --icon "icon.ico" ^
   --add-data "app.py;." ^
