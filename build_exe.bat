@@ -1,10 +1,10 @@
 @echo off
-echo Building EduTrans.exe...
+echo Building 싹싹번역.exe...
 
 pip install pyinstaller pywebview > nul
 
 pyinstaller --noconfirm --onedir --windowed ^
-  --name "EduTrans" ^
+  --name "싹싹번역" ^
   --icon "icon.ico" ^
   --add-data "app.py;." ^
   --add-data "glossary.py;." ^
@@ -22,5 +22,5 @@ pyinstaller --noconfirm --onedir --windowed ^
   desktop_run.py
 
 echo.
-echo Build complete! Output: dist\EduTrans\EduTrans.exe
+echo Build complete! Output: dist\싹싹번역\싹싹번역.exe
 pause
