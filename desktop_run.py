@@ -273,13 +273,23 @@ if __name__ == "__main__":
 
     win.close()  # 팝업 닫기
 
-    # 5. pywebview EdgeChromium(WebView2)으로 데스크탑 창 열기
-    import webview
-    webview.create_window(
-        "EduTrans - 강의자료 번역기",
-        f"http://localhost:{port}",
-        width=1280,
-        height=860,
-        resizable=True,
-    )
-    webview.start(gui='edgechromium')
+    # 5. 브라우저로 열기 + 제어창 표시
+    import webbrowser
+    webbrowser.open(f"http://localhost:{port}")
+
+    # 6. 앱 제어창 (닫으면 종료)
+    root = tk.Tk()
+    root.title("EduTrans")
+    root.geometry("320x130")
+    root.resizable(False, False)
+    root.attributes('-topmost', True)
+
+    tk.Label(root, text="🎓 EduTrans 실행 중",
+             font=("맑은 고딕", 12, "bold")).pack(pady=(18, 4))
+    tk.Label(root, text="브라우저에서 앱이 열려 있습니다.\n이 창을 닫으면 앱이 종료됩니다.",
+             font=("맑은 고딕", 9), fg="#555").pack()
+    tk.Button(root, text="앱 종료", command=root.destroy,
+              bg="#e74c3c", fg="white", font=("맑은 고딕", 9),
+              relief="flat", padx=16, pady=4).pack(pady=10)
+
+    root.mainloop()
