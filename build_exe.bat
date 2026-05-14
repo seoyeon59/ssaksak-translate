@@ -9,7 +9,6 @@ pyinstaller --noconfirm --onedir --windowed ^
   --add-data "app.py;." ^
   --add-data "glossary.py;." ^
   --collect-all streamlit ^
-  --collect-all pywebview ^
   --collect-all pymupdf ^
   --collect-all pptx ^
   --collect-all langchain_ollama ^
