@@ -21,7 +21,7 @@ _patch_streamlit_signal()
 
 
 # ── 설정 파일 (최초 설치 여부 저장) ─────────────────
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".edutrans")
+CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".ssaksak")
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 def load_config():
@@ -50,12 +50,12 @@ def resource_path(relative_path):
 class SetupWindow:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("EduTrans 시작 중...")
+        self.root.title("싹싹번역 시작 중...")
         self.root.geometry("420x160")
         self.root.resizable(False, False)
         self.root.attributes('-topmost', True)
 
-        tk.Label(self.root, text="EduTrans 준비 중입니다...",
+        tk.Label(self.root, text="싹싹번역 준비 중입니다...",
                  font=("맑은 고딕", 11, "bold")).pack(pady=(20, 8))
         self.label = tk.Label(self.root, text="초기화 중...", font=("맑은 고딕", 9))
         self.label.pack()
@@ -75,11 +75,11 @@ class SetupWindow:
 class LoadingWindow:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("EduTrans")
+        self.root.title("싹싹번역")
         self.root.geometry("300x80")
         self.root.resizable(False, False)
         self.root.attributes('-topmost', True)
-        self.label = tk.Label(self.root, text="EduTrans 시작 중...", font=("맑은 고딕", 10))
+        self.label = tk.Label(self.root, text="싹싹번역 시작 중...", font=("맑은 고딕", 10))
         self.label.pack(pady=(16, 4))
         self.bar = ttk.Progressbar(self.root, length=260, mode='indeterminate')
         self.bar.pack()
@@ -145,7 +145,7 @@ def ensure_ollama(win):
             return True
         else:
             win.root.after(0, lambda: messagebox.showerror(
-                "오류", "Ollama 설치 후 인식 실패.\n창을 닫고 EduTrans.exe를 다시 실행해주세요."))
+                "오류", "Ollama 설치 후 인식 실패.\n창을 닫고 싹싹번역.exe를 다시 실행해주세요."))
             return False
     except Exception as e:
         result = [False]
@@ -306,12 +306,12 @@ if __name__ == "__main__":
 
     # 6. 앱 제어창 (닫으면 종료)
     root = tk.Tk()
-    root.title("EduTrans")
+    root.title("싹싹번역")
     root.geometry("320x130")
     root.resizable(False, False)
     root.attributes('-topmost', True)
 
-    tk.Label(root, text="🎓 EduTrans 실행 중",
+    tk.Label(root, text="🎓 싹싹번역 실행 중",
              font=("맑은 고딕", 12, "bold")).pack(pady=(18, 4))
     tk.Label(root, text="브라우저에서 앱이 열려 있습니다.\n이 창을 닫으면 앱이 종료됩니다.",
              font=("맑은 고딕", 9), fg="#555").pack()
