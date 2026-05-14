@@ -273,13 +273,13 @@ if __name__ == "__main__":
 
     win.close()  # 팝업 닫기
 
-    # 5. 기본 브라우저로 열기
-    import webbrowser
-    webbrowser.open(f"http://localhost:{port}")
-
-    # 6. 브라우저가 닫혀도 서버 유지 (메인 스레드 대기)
-    try:
-        while t.is_alive():
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
+    # 5. pywebview EdgeChromium(WebView2)으로 데스크탑 창 열기
+    import webview
+    webview.create_window(
+        "EduTrans - 강의자료 번역기",
+        f"http://localhost:{port}",
+        width=1280,
+        height=860,
+        resizable=True,
+    )
+    webview.start(gui='edgechromium')
