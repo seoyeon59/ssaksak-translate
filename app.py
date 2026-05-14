@@ -140,6 +140,7 @@ with st.sidebar:
         model=selected_model,
         temperature=0,
         num_predict=MODEL_INFO[selected_model]["num_predict"],
+        timeout=60,  # 60초 타임아웃 (응답 없음 방지)
     )
 
     st.divider()
