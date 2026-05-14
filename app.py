@@ -5,6 +5,7 @@ import re
 import json
 import unicodedata
 import tempfile
+import subprocess
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
@@ -535,13 +536,30 @@ tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
 
 
 def get_save_path(filename):
-    """Downloads 폴더에 저장 경로 생성"""
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     os.makedirs(downloads, exist_ok=True)
     return os.path.join(downloads, f"translated_{filename}")
 
 
+def open_folder(path):
+    if platform.system() == "Windows":
+        os.startfile(path)
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
 def run_translation(uploaded_file, mode):
+    result_key = f"result_{mode}"
+    file_key = f"file_{mode}"
+
+    # 새 파일 업로드 시 이전 결과 초기화
+    if uploaded_file:
+        if st.session_state.get(file_key) != uploaded_file.name:
+            st.session_state[result_key] = None
+            st.session_state[file_key] = uploaded_file.name
+
     if uploaded_file:
         if st.button(f"🚀 {mode} 번역 시작"):
             suffix = os.path.splitext(uploaded_file.name)[1]
@@ -559,25 +577,32 @@ def run_translation(uploaded_file, mode):
                     else:
                         process_pdf(in_path, out_path, manual_dept, auto_detect)
 
-                st.success(f"✅ 번역 완료!")
-                st.info(f"📁 저장 위치: `{out_path}`")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
-                        os.startfile(os.path.dirname(out_path))
-                with col2:
-                    # 브라우저 사용자를 위한 다운로드 버튼도 유지
-                    with open(out_path, "rb") as f:
-                        st.download_button("💾 직접 다운로드", f,
-                                           file_name=out_filename,
-                                           key=f"dl_{mode}")
-
+                st.session_state[result_key] = {
+                    "out_path": out_path,
+                    "out_filename": out_filename,
+                }
             except Exception as e:
                 st.error(f"오류 발생: {e}")
             finally:
                 if os.path.exists(in_path):
                     os.remove(in_path)
+
+        result = st.session_state.get(result_key)
+        if result and os.path.exists(result["out_path"]):
+            out_path = result["out_path"]
+            out_filename = result["out_filename"]
+            st.success("✅ 번역 완료!")
+            st.info(f"📁 저장 위치: `{out_path}`")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
+                    open_folder(os.path.dirname(out_path))
+            with col2:
+                with open(out_path, "rb") as f:
+                    st.download_button("💾 직접 다운로드", f,
+                                       file_name=out_filename,
+                                       key=f"dl_{mode}")
 
 
 with tab1:
