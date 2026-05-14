@@ -1,6 +1,5 @@
 import sys
 import os
-import re
 import json
 import threading
 import time
@@ -47,7 +46,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-# ── 최초 설치용 진행 창 ───────────────────────────
+# ── 최초 설치용 진행 창 (thread-safe) ────────────────
 class SetupWindow:
     def __init__(self):
         self.root = tk.Tk()
@@ -63,18 +62,16 @@ class SetupWindow:
         self.bar = ttk.Progressbar(self.root, length=360, mode='indeterminate')
         self.bar.pack(pady=10)
         self.bar.start(10)
-        self.root.update()
 
     def update(self, msg):
-        self.label.config(text=msg)
-        self.root.update()
+        # 백그라운드 스레드에서 안전하게 UI 업데이트
+        self.root.after(0, lambda: self.label.config(text=msg))
 
     def close(self):
-        self.bar.stop()
-        self.root.destroy()
+        self.root.after(0, self.root.quit)
 
 
-# ── 재실행 시 간단한 로딩 창 ──────────────────────
+# ── 재실행 시 간단한 로딩 창 (thread-safe) ────────────
 class LoadingWindow:
     def __init__(self):
         self.root = tk.Tk()
@@ -87,15 +84,12 @@ class LoadingWindow:
         self.bar = ttk.Progressbar(self.root, length=260, mode='indeterminate')
         self.bar.pack()
         self.bar.start(10)
-        self.root.update()
 
     def update(self, msg):
-        self.label.config(text=msg)
-        self.root.update()
+        self.root.after(0, lambda: self.label.config(text=msg))
 
     def close(self):
-        self.bar.stop()
-        self.root.destroy()
+        self.root.after(0, self.root.quit)
 
 
 # ── Ollama 실행 파일 탐색 (PATH + 일반 설치 경로) ──
@@ -117,7 +111,7 @@ def find_ollama_exe():
     return False
 
 
-# ── Ollama 확인 및 설치 (최초 실행용) ────────────────
+# ── Ollama 확인 및 설치 ───────────────────────────
 def ensure_ollama(win):
     win.update("Ollama 확인 중...")
     if find_ollama_exe():
@@ -150,21 +144,31 @@ def ensure_ollama(win):
             win.update("[OK] Ollama 설치 완료")
             return True
         else:
-            messagebox.showerror("오류", "Ollama 설치 후 인식 실패.\n창을 닫고 EduTrans.exe를 다시 실행해주세요.")
+            win.root.after(0, lambda: messagebox.showerror(
+                "오류", "Ollama 설치 후 인식 실패.\n창을 닫고 EduTrans.exe를 다시 실행해주세요."))
             return False
     except Exception as e:
-        # 자동 설치 실패 → 수동 설치 여부 확인
-        answer = messagebox.askyesno(
-            "Ollama 설치 오류",
-            f"Ollama 자동 설치에 실패했습니다.\n({e})\n\n"
-            "https://ollama.com 에서 직접 설치하셨나요?\n"
-            "'예'를 누르면 앱을 계속 실행합니다."
-        )
-        if answer:
+        result = [False]
+        event = threading.Event()
+
+        def ask():
+            result[0] = messagebox.askyesno(
+                "Ollama 설치 오류",
+                f"Ollama 자동 설치에 실패했습니다.\n({e})\n\n"
+                "https://ollama.com 에서 직접 설치하셨나요?\n"
+                "'예'를 누르면 앱을 계속 실행합니다."
+            )
+            event.set()
+
+        win.root.after(0, ask)
+        event.wait()
+
+        if result[0]:
             if find_ollama_exe():
                 win.update("[OK] Ollama 수동 설치 확인됨")
                 return True
-            messagebox.showerror("오류", "Ollama를 찾을 수 없습니다.\n설치 후 다시 실행해주세요.")
+            win.root.after(0, lambda: messagebox.showerror(
+                "오류", "Ollama를 찾을 수 없습니다.\n설치 후 다시 실행해주세요."))
         return False
 
 
@@ -175,7 +179,8 @@ def ensure_models(win):
         result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10)
         installed = result.stdout
     except Exception:
-        messagebox.showerror("오류", "Ollama 실행 실패. Ollama가 정상 설치됐는지 확인해주세요.")
+        win.root.after(0, lambda: messagebox.showerror(
+            "오류", "Ollama 실행 실패. Ollama가 정상 설치됐는지 확인해주세요."))
         return False
 
     for model in preload:
@@ -188,7 +193,7 @@ def ensure_models(win):
     return True
 
 
-# ── 모델 설치 여부 빠른 확인 (재실행용, 창 없음) ──────
+# ── 모델 설치 여부 빠른 확인 ──────────────────────
 def check_all_ready():
     if not find_ollama_exe():
         return False
@@ -241,41 +246,63 @@ def wait_for_server(port, timeout=30):
 # ── 메인 ─────────────────────────────────────────
 if __name__ == "__main__":
     config = load_config()
+    all_ready = config.get("setup_complete") and check_all_ready()
 
-    # 이미 설치가 완료된 상태면 빠른 확인만, 아니면 전체 설치 진행
-    if config.get("setup_complete") and check_all_ready():
-        win = LoadingWindow()
-    else:
-        win = SetupWindow()
-        if not ensure_ollama(win):
+    win = LoadingWindow() if all_ready else SetupWindow()
+
+    # 결과 공유 변수
+    exit_info = {"code": 0, "msg": ""}
+    port_ref = [None]
+
+    # ── 모든 무거운 작업은 백그라운드 스레드에서 ──
+    def background_work():
+        # 1. 설치 확인 (최초 실행 시만)
+        if not all_ready:
+            if not ensure_ollama(win):
+                exit_info["code"] = 1
+                win.close()
+                return
+            if not ensure_models(win):
+                exit_info["code"] = 1
+                win.close()
+                return
+            config["setup_complete"] = True
+            save_config(config)
+
+        # 2. Streamlit 서버 시작
+        win.update("앱 서버 시작 중...")
+        port = find_free_port()
+        port_ref[0] = port
+
+        t = threading.Thread(target=run_streamlit, args=(port,), daemon=True)
+        t.start()
+
+        # 3. 서버 응답 대기
+        if not wait_for_server(port, timeout=30):
+            exit_info["code"] = 2
+            exit_info["msg"] = "서버 시작 실패. 다시 실행해주세요."
             win.close()
-            sys.exit(1)
-        if not ensure_models(win):
-            win.close()
-            sys.exit(1)
-        config["setup_complete"] = True
-        save_config(config)
+            return
 
-    win.update("앱 서버 시작 중...")
-
-    # 2. 빈 포트 찾기
-    port = find_free_port()
-
-    # 3. Streamlit을 백그라운드 스레드에서 실행 (signal 패치로 오류 방지)
-    t = threading.Thread(target=run_streamlit, args=(port,), daemon=True)
-    t.start()
-
-    # 4. 서버 응답 대기
-    if not wait_for_server(port, timeout=30):
+        # 4. 준비 완료 → 로딩창 닫기
         win.close()
-        messagebox.showerror("오류", "서버 시작 실패. 다시 실행해주세요.")
+
+    t_bg = threading.Thread(target=background_work, daemon=True)
+    t_bg.start()
+
+    # 메인 스레드: GUI 이벤트 루프 (응답 없음 방지)
+    win.root.mainloop()
+    win.root.destroy()
+
+    # 오류 처리
+    if exit_info["code"] != 0:
+        if exit_info["msg"]:
+            messagebox.showerror("오류", exit_info["msg"])
         sys.exit(1)
 
-    win.close()  # 팝업 닫기
-
-    # 5. 브라우저로 열기 + 제어창 표시
+    # 5. 브라우저로 열기
     import webbrowser
-    webbrowser.open(f"http://localhost:{port}")
+    webbrowser.open(f"http://localhost:{port_ref[0]}")
 
     # 6. 앱 제어창 (닫으면 종료)
     root = tk.Tk()
