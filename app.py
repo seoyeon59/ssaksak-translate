@@ -14,7 +14,7 @@ import platform
 from glossary import DEFAULT_GLOSSARY
 
 # --- [1. 초기 설정] ---
-st.set_page_config(page_title="TransSlide AI - 로컬 전공 번역기", layout="wide", page_icon="🎓")
+st.set_page_config(page_title="싹싹번역 - 전공 맞춤형 번역기", layout="wide", page_icon="🌿")
 
 USER_GLOSSARY_PATH = "user_glossary.json"
 
@@ -520,7 +520,7 @@ st.markdown("""<style>
     .stButton button { width: 100%; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
 </style>""", unsafe_allow_html=True)
 
-st.title("🎓 전공 맞춤형 강의자료 번역기")
+st.title("🌿 싹싹번역 - 전공 맞춤형 강의자료 번역기")
 
 with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     st.markdown("""
