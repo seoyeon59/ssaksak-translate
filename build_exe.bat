@@ -4,10 +4,11 @@ echo Building EduTrans.exe...
 pip install pyinstaller pywebview > nul
 
 pyinstaller --noconfirm --onedir --windowed ^
-  --name "EduTrans" ^
+  --name "ssackssack-translate" ^
   --icon "icon.ico" ^
   --add-data "app.py;." ^
   --add-data "glossary.py;." ^
+  --add-data "fonts;fonts" ^
   --collect-all streamlit ^
   --collect-all pywebview ^
   --hidden-import streamlit.web.cli ^

@@ -514,7 +514,7 @@ def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
 
 # --- [5. 메인 UI] ---
 st.markdown("""<style>
-    .stSidebar h2 { font-size: 1.8rem !important; color: #4A90E2; }
+    .stSidebar h2 { fonts-size: 1.8rem !important; color: #4A90E2; }
     .stButton button { width: 100%; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
 </style>""", unsafe_allow_html=True)
 
@@ -587,13 +587,13 @@ with tab2:
 
 st.divider()
 st.markdown("""
-    <div style="text-align: center; color: gray; font-size: 0.75rem; line-height: 1.8;">
+    <div style="text-align: center; color: gray; fonts-size: 0.75rem; line-height: 1.8;">
         <p><b>Built with Qwen</b> · <b>Built with Llama</b> · <b>Built with Meta Llama 3</b></p>
         <p>
             <b>Qwen2.5</b>: Qwen Research License (비상업적/연구·평가 목적) © Alibaba Cloud. All Rights Reserved.<br>
             <b>Llama 3.2</b>: Llama 3.2 Community License © Meta Platforms, Inc. All Rights Reserved.<br>
         </p>
-        <p style="font-size: 0.7rem; opacity: 0.75;">
+        <p style="fonts-size: 0.7rem; opacity: 0.75;">
             ※ Qwen2.5 모델은 비상업적 용도(연구·교육·평가)로만 사용 가능합니다. 상업적 사용 시 Alibaba Cloud에 별도 라이선스를 요청하세요.<br>
             ※ Llama 3.2 모델은 월간 활성 사용자 7억 명 미만의 서비스에 한해 상업적 사용이 허용됩니다.<br>
             모든 데이터는 로컬 PC에서만 처리됩니다. 외부 서버로 전송되지 않습니다.
