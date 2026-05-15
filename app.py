@@ -5,6 +5,8 @@ import re
 import json
 import unicodedata
 import tempfile
+import subprocess
+import time
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
@@ -13,7 +15,70 @@ import platform
 from glossary import DEFAULT_GLOSSARY
 
 # --- [1. 초기 설정] ---
-st.set_page_config(page_title="TransSlide AI - 로컬 전공 번역기", layout="wide", page_icon="🎓")
+st.set_page_config(page_title="싹싹번역 - 전공 맞춤형 번역기", layout="wide", page_icon="🌿")
+
+# ── 설치 상태 확인 (Ollama/모델 설치 완료 전까지 앱 실행 차단) ──────────
+_SETUP_STATUS_PATH = os.path.join(os.path.expanduser("~"), ".ssaksak", "setup_status.json")
+
+def _get_setup_status():
+    try:
+        with open(_SETUP_STATUS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"status": "ready", "message": "준비 완료", "progress": 100}
+
+_setup = _get_setup_status()
+
+if _setup.get("status") == "installing":
+    st.markdown("""
+    <div style="text-align:center; padding: 60px 20px 20px;">
+        <div style="font-size:3rem; margin-bottom:16px;">⚙️</div>
+        <h2 style="color:#1e3a8a; margin-bottom:8px;">싹싹번역 초기 설정 중...</h2>
+        <p style="color:#555; margin-bottom:32px;">최초 1회 설정 작업입니다. 완료되면 자동으로 앱이 시작됩니다.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    progress_val = _setup.get("progress", 0)
+    msg = _setup.get("message", "설치 진행 중...")
+    st.progress(progress_val / 100)
+    st.info(f"📦 {msg}")
+
+    if progress_val < 30:
+        st.caption("🔧 Ollama AI 엔진 설치 중입니다...")
+    elif progress_val < 90:
+        st.caption("📥 번역 AI 모델을 다운로드 중입니다. 인터넷 속도에 따라 10~20분 소요될 수 있습니다.")
+    else:
+        st.caption("✅ 거의 다 됐어요! 잠시만 기다려주세요.")
+
+    st.markdown("""
+    <div style="background:#f0f7ff; border:1px solid #bfdbfe; border-radius:10px; padding:16px 20px; margin-top:24px; font-size:0.88rem; color:#3b4a6b;">
+        ℹ️ <b>설치 안내</b><br>
+        이 창을 닫아도 설치는 계속 진행됩니다.<br>
+        설치 완료 후 이 페이지가 자동으로 번역 화면으로 전환됩니다.
+    </div>
+    """, unsafe_allow_html=True)
+
+    time.sleep(2)
+    st.rerun()
+
+elif _setup.get("status") == "error":
+    st.markdown("""
+    <div style="text-align:center; padding: 60px 20px 20px;">
+        <div style="font-size:3rem; margin-bottom:16px;">❌</div>
+        <h2 style="color:#dc2626; margin-bottom:8px;">설치 오류가 발생했습니다</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    st.error(_setup.get("message", "알 수 없는 오류"))
+    st.markdown("""
+    <div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:16px 20px; margin-top:16px; font-size:0.88rem; color:#7c3aed;">
+        💡 <b>해결 방법</b><br>
+        1. <a href="https://ollama.com" target="_blank">https://ollama.com</a> 에서 Ollama를 수동으로 설치해주세요.<br>
+        2. 설치 완료 후 싹싹번역을 다시 실행해주세요.
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
+
+# ── 설치 완료 → 정상 앱 진행 ───────────────────────────────────────────
 
 USER_GLOSSARY_PATH = "user_glossary.json"
 
@@ -139,6 +204,7 @@ with st.sidebar:
         model=selected_model,
         temperature=0,
         num_predict=MODEL_INFO[selected_model]["num_predict"],
+        timeout=60,  # 60초 타임아웃 (응답 없음 방지)
     )
 
     st.divider()
@@ -518,7 +584,7 @@ st.markdown("""<style>
     .stButton button { width: 100%; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
 </style>""", unsafe_allow_html=True)
 
-st.title("🎓 전공 맞춤형 강의자료 번역기")
+st.title("🌿 싹싹번역 - 전공 맞춤형 강의자료 번역기")
 
 with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     st.markdown("""
@@ -535,13 +601,30 @@ tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
 
 
 def get_save_path(filename):
-    """Downloads 폴더에 저장 경로 생성"""
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     os.makedirs(downloads, exist_ok=True)
     return os.path.join(downloads, f"translated_{filename}")
 
 
+def open_folder(path):
+    if platform.system() == "Windows":
+        os.startfile(path)
+    elif platform.system() == "Darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
+
+
 def run_translation(uploaded_file, mode):
+    result_key = f"result_{mode}"
+    file_key = f"file_{mode}"
+
+    # 새 파일 업로드 시 이전 결과 초기화
+    if uploaded_file:
+        if st.session_state.get(file_key) != uploaded_file.name:
+            st.session_state[result_key] = None
+            st.session_state[file_key] = uploaded_file.name
+
     if uploaded_file:
         if st.button(f"🚀 {mode} 번역 시작"):
             suffix = os.path.splitext(uploaded_file.name)[1]
@@ -559,25 +642,32 @@ def run_translation(uploaded_file, mode):
                     else:
                         process_pdf(in_path, out_path, manual_dept, auto_detect)
 
-                st.success(f"✅ 번역 완료!")
-                st.info(f"📁 저장 위치: `{out_path}`")
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
-                        os.startfile(os.path.dirname(out_path))
-                with col2:
-                    # 브라우저 사용자를 위한 다운로드 버튼도 유지
-                    with open(out_path, "rb") as f:
-                        st.download_button("💾 직접 다운로드", f,
-                                           file_name=out_filename,
-                                           key=f"dl_{mode}")
-
+                st.session_state[result_key] = {
+                    "out_path": out_path,
+                    "out_filename": out_filename,
+                }
             except Exception as e:
                 st.error(f"오류 발생: {e}")
             finally:
                 if os.path.exists(in_path):
                     os.remove(in_path)
+
+        result = st.session_state.get(result_key)
+        if result and os.path.exists(result["out_path"]):
+            out_path = result["out_path"]
+            out_filename = result["out_filename"]
+            st.success("✅ 번역 완료!")
+            st.info(f"📁 저장 위치: `{out_path}`")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
+                    open_folder(os.path.dirname(out_path))
+            with col2:
+                with open(out_path, "rb") as f:
+                    st.download_button("💾 직접 다운로드", f,
+                                       file_name=out_filename,
+                                       key=f"dl_{mode}")
 
 
 with tab1:
