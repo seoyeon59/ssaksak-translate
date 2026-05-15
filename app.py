@@ -227,12 +227,6 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"파일 읽기 오류: {e}")
 
-    st.divider()
-    if st.button("🧹 번역 캐시 초기화"):
-        st.session_state["translation_cache"] = {}
-        st.session_state["detected_dept"] = None
-        st.success("캐시가 초기화되었습니다.")
-
 
 # --- [3. 핵심 유틸리티] ---
 

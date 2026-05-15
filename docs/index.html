@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>싹싹번역 - 전공 맞춤형 강의자료 번역기</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Pretendard", "Noto Sans KR", "맑은 고딕", sans-serif;
+      background: #f8f9fc;
+      color: #1a1a2e;
+    }
+
+    /* Hero */
+    .hero {
+      background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+      color: white;
+      text-align: center;
+      padding: 80px 24px 64px;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 999px;
+      padding: 6px 16px;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 800;
+      margin-bottom: 16px;
+      line-height: 1.2;
+    }
+    .hero p {
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      opacity: 0.85;
+      max-width: 560px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+    .btn-download {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: white;
+      color: #1e3a8a;
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 16px 36px;
+      border-radius: 12px;
+      text-decoration: none;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn-download:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    }
+    .btn-download svg { width: 20px; height: 20px; }
+    .hero-note {
+      margin-top: 16px;
+      font-size: 0.82rem;
+      opacity: 0.65;
+    }
+
+    /* Section */
+    section {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 64px 24px;
+    }
+    section h2 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      margin-bottom: 36px;
+      text-align: center;
+    }
+
+    /* Features */
+    .features { background: white; max-width: 100%; padding: 64px 24px; }
+    .features-inner { max-width: 900px; margin: 0 auto; }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 24px;
+    }
+    .feature-card {
+      background: #f8f9fc;
+      border-radius: 16px;
+      padding: 28px 24px;
+      border: 1px solid #e8eaf0;
+    }
+    .feature-icon { font-size: 2rem; margin-bottom: 12px; }
+    .feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
+    .feature-card p { font-size: 0.88rem; color: #555; line-height: 1.6; }
+
+    /* How to use */
+    .steps { display: flex; flex-direction: column; gap: 20px; }
+    .step {
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+      background: white;
+      border-radius: 14px;
+      padding: 24px;
+      border: 1px solid #e8eaf0;
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 40px; height: 40px;
+      background: #1e3a8a;
+      color: white;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1rem;
+    }
+    .step-content h3 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+    .step-content p { font-size: 0.88rem; color: #555; line-height: 1.6; }
+
+    /* Models */
+    .model-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .model-card {
+      background: white;
+      border-radius: 14px;
+      padding: 24px;
+      border: 2px solid #e8eaf0;
+    }
+    .model-card.recommended { border-color: #3b82f6; }
+    .model-card .badge {
+      display: inline-block;
+      background: #3b82f6;
+      color: white;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+    }
+    .model-card h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
+    .model-card p { font-size: 0.86rem; color: #555; line-height: 1.6; }
+    .stars { color: #f59e0b; font-size: 0.85rem; margin-top: 8px; }
+
+    /* Requirements */
+    .req-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      list-style: none;
+    }
+    .req-list li {
+      background: white;
+      border-radius: 12px;
+      padding: 18px 20px;
+      border: 1px solid #e8eaf0;
+      font-size: 0.9rem;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .req-list li span { font-size: 1.3rem; }
+
+    /* Privacy */
+    .privacy-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 14px;
+      padding: 28px 32px;
+      text-align: center;
+    }
+    .privacy-box .icon { font-size: 2.4rem; margin-bottom: 12px; }
+    .privacy-box h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+    .privacy-box p { font-size: 0.9rem; color: #3b4a6b; line-height: 1.7; }
+
+    /* CTA */
+    .cta {
+      background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+      color: white;
+      text-align: center;
+      padding: 64px 24px;
+    }
+    .cta h2 { font-size: 1.8rem; font-weight: 800; margin-bottom: 12px; }
+    .cta p { opacity: 0.85; margin-bottom: 32px; font-size: 1rem; }
+    .btn-download-white {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: white;
+      color: #1e3a8a;
+      font-size: 1.05rem;
+      font-weight: 700;
+      padding: 16px 36px;
+      border-radius: 12px;
+      text-decoration: none;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+      transition: transform 0.15s;
+    }
+    .btn-download-white:hover { transform: translateY(-2px); }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 32px 24px;
+      font-size: 0.8rem;
+      color: #999;
+      background: #f0f2f8;
+    }
+    footer a { color: #3b82f6; text-decoration: none; }
+
+    /* divider */
+    .divider { height: 1px; background: #e8eaf0; }
+  </style>
+</head>
+<body>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-badge">🎓 완전 무료 · 로컬 실행 · 개인정보 보호</div>
+  <h1>강의자료, 이제<br>한국어로 읽으세요</h1>
+  <p>PDF·PPT 영문 강의자료를 AI가 전공에 맞게 번역해드립니다.<br>인터넷 없이도, 내 PC에서 안전하게.</p>
+  <a class="btn-download" href="https://github.com/seoyeon59/ssaksak-translate/releases/latest/download/ssaksak-translate.zip">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-7 2h14v2H5v-2z"/>
+    </svg>
+    Windows용 무료 다운로드
+  </a>
+  <p class="hero-note">Windows 10 이상 · 약 120MB · 최초 실행 시 AI 모델 자동 설치</p>
+</div>
+
+<!-- Features -->
+<div class="features">
+  <div class="features-inner">
+    <h2>왜 싹싹번역인가요?</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>완전 로컬 처리</h3>
+        <p>모든 번역이 내 PC 안에서만 이루어집니다. 강의 자료가 외부 서버로 전송되지 않아요.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>전공 맞춤 번역</h3>
+        <p>컴퓨터공학, 간호학, 경영학 등 30개 이상의 전공 용어 사전을 기반으로 정확하게 번역합니다.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📄</div>
+        <h3>PDF · PPT 지원</h3>
+        <p>강의 슬라이드(PPTX)와 PDF 모두 지원합니다. 원본 레이아웃을 그대로 유지하며 번역문을 추가합니다.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📚</div>
+        <h3>나만의 용어 사전</h3>
+        <p>교수님이 즐겨 쓰는 표현이나 과목 특화 용어를 직접 추가해 더 정확한 번역을 만들 수 있어요.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>빠른 번역 속도</h3>
+        <p>경량 AI 모델(3B)을 사용해 일반 노트북에서도 슬라이드 한 장을 수초 내에 번역합니다.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🤖</div>
+        <h3>전공 자동 감지</h3>
+        <p>파일 첫 페이지를 분석해 전공을 자동으로 추론합니다. 따로 설정할 필요 없어요.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- How to use -->
+<section>
+  <h2>사용 방법</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>싹싹번역.zip 다운로드 후 압축 해제</h3>
+        <p>아래 다운로드 버튼을 누르고, 원하는 폴더에 압축을 풀어주세요.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>싹싹번역.exe 실행</h3>
+        <p>폴더 안의 싹싹번역.exe를 더블클릭하세요. 최초 실행 시 AI 엔진(Ollama)과 번역 모델이 자동으로 설치됩니다. 약 15~20분 소요됩니다.
+          <br>* 미리 Ollama를 다운로드 받아둘 시 더 빠른 설치가 가능합니다.
+          <br>* 컴퓨터 사양에 따라 설치 시간은 달라질 수 있습니다.
+        </p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>파일 업로드 후 번역 시작</h3>
+        <p>PDF 또는 PPTX 파일을 업로드하고 번역 시작 버튼을 누르면 됩니다. 번역된 파일은 Downloads 폴더에 자동 저장됩니다.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>두 번째 실행부터는 바로 시작</h3>
+        <p>최초 설치가 완료된 이후엔 실행 즉시 앱이 열립니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Models -->
+<div class="features">
+  <div class="features-inner">
+    <h2>사용 AI 모델</h2>
+    <div class="model-grid">
+      <div class="model-card recommended">
+        <span class="badge">탑재 모델</span>
+        <h3>Llama 3.2 3B</h3>
+        <p>Meta 개발의 경량 3B 모델. 일반 노트북에서도 빠른 속도로 학술 한국어 번역이 가능합니다. Llama Community License 기반으로 상업적 사용도 가능합니다.</p>
+        <div class="stars">번역 품질 ★★★★☆ &nbsp;|&nbsp; 속도 ★★★★★ &nbsp;|&nbsp; ~2GB RAM</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- Requirements -->
+<section>
+  <h2>시스템 요구 사항</h2>
+  <ul class="req-list">
+    <li><span>🖥️</span> Windows 10 이상</li>
+    <li><span>💾</span> 저장공간 5GB 이상</li>
+    <li><span>🧠</span> RAM 4GB 이상 권장</li>
+    <li><span>🌐</span> 인터넷 (최초 1회)</li>
+  </ul>
+</section>
+
+<div class="divider"></div>
+
+<!-- Privacy -->
+<section style="padding-top: 0;">
+  <div class="privacy-box">
+    <div class="icon">🔐</div>
+    <h3>개인정보는 절대 외부로 나가지 않습니다</h3>
+    <p>싹싹번역는 완전히 오프라인에서 작동합니다.<br>
+    업로드한 강의자료, 번역 결과 모두 내 PC 안에서만 처리되며<br>
+    어떤 서버로도 전송되지 않습니다.</p>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta">
+  <h2>지금 바로 시작해보세요</h2>
+  <br>설치 15분, 영문 강의자료 걱정 끝</p>
+  <a class="btn-download-white" href="https://github.com/seoyeon59/ssaksak-translate/releases/latest/download/ssaksak-translate.zip">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 16l-6-6h4V4h4v6h4l-6 6zm-7 2h14v2H5v-2z"/>
+    </svg>
+    싹싹번역 무료 다운로드
+  </a>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>
+    <a href="https://github.com/seoyeon59/ssaksak-translate" target="_blank">GitHub</a> ·
+    <a href="https://github.com/seoyeon59/ssaksak-translate/releases" target="_blank">릴리스 노트</a>
+  </p>
+  <p style="margin-top: 8px;">
+    Powered by <strong>Llama 3.2</strong> (Meta) · Llama Community License
+  </p>
+</footer>
+
+</body>
+</html>

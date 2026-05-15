@@ -1,12 +1,13 @@
 @echo off
 echo Building SsakSsak.exe...
 
-pip install pyinstaller pywebview > nul
+python -m pip install pyinstaller pywebview > nul
 
 REM fonts 폴더가 없으면 빈 폴더라도 만들어 PyInstaller 경고 회피
 if not exist "fonts" mkdir fonts
 
-pyinstaller --noconfirm --onedir --windowed ^
+REM 'pyinstaller' 명령이 PATH에 없을 수 있으므로 python -m PyInstaller 로 호출
+python -m PyInstaller --noconfirm --onedir --windowed ^
   --name "SsakSsak" ^
   --icon "icon.ico" ^
   --add-data "app.py;." ^
