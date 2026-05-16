@@ -55,7 +55,7 @@ ShowLanguageDialog=auto
 ; InfoBeforeFile=README_KR.txt
 
 ; ── 최소 OS ──
-MinVersion=10.0.17763   ; Windows 10 1809+
+MinVersion=10.0   ; Windows 10+
 
 ; ── 압축 해제 후 사이즈 ──
 UninstallDisplayIcon={app}\{#MyAppExeName}
