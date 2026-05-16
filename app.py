@@ -8,6 +8,8 @@ import time
 import shutil
 import unicodedata
 import tempfile
+import subprocess
+import time
 from pptx import Presentation
 from pptx.util import Pt
 from pptx.dml.color import RGBColor
@@ -472,7 +474,7 @@ def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
 
 # --- [5. 메인 UI] ---
 st.markdown("""<style>
-    .stSidebar h2 { font-size: 1.8rem !important; color: #4A90E2; }
+    .stSidebar h2 { fonts-size: 1.8rem !important; color: #4A90E2; }
     .stButton button { width: 100%; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
 </style>""", unsafe_allow_html=True)
 
@@ -492,7 +494,6 @@ tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
 
 
 def get_save_path(filename):
-    """Downloads 폴더에 저장 경로 생성"""
     downloads = os.path.join(os.path.expanduser("~"), "Downloads")
     os.makedirs(downloads, exist_ok=True)
     return os.path.join(downloads, f"translated_{filename}")
@@ -524,6 +525,15 @@ if "cleaned_old_translations" not in st.session_state:
 
 
 def run_translation(uploaded_file, mode):
+    result_key = f"result_{mode}"
+    file_key = f"file_{mode}"
+
+    # 새 파일 업로드 시 이전 결과 초기화
+    if uploaded_file:
+        if st.session_state.get(file_key) != uploaded_file.name:
+            st.session_state[result_key] = None
+            st.session_state[file_key] = uploaded_file.name
+
     if uploaded_file:
         if st.button(f"🚀 {mode} 번역 시작"):
             suffix = os.path.splitext(uploaded_file.name)[1]
@@ -563,6 +573,23 @@ def run_translation(uploaded_file, mode):
 
                 except Exception as e:
                     st.error(f"오류 발생: {e}")
+
+        result = st.session_state.get(result_key)
+        if result and os.path.exists(result["out_path"]):
+            out_path = result["out_path"]
+            out_filename = result["out_filename"]
+            st.success("✅ 번역 완료!")
+            st.info(f"📁 저장 위치: `{out_path}`")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
+                    open_folder(os.path.dirname(out_path))
+            with col2:
+                with open(out_path, "rb") as f:
+                    st.download_button("💾 직접 다운로드", f,
+                                       file_name=out_filename,
+                                       key=f"dl_{mode}")
 
 
 with tab1:
