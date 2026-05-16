@@ -488,8 +488,9 @@ with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     4. **수동 모드:** 자동 감지를 끄면 사이드바에서 직접 전공을 선택합니다.
     5. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
     6. **보안:** 모든 데이터는 본인 PC 내에서만 처리됩니다.
+    + **싹싹 번역 이용 불편:** 구글 폼(https://forms.gle/QEyvksf7CHGqRzDs9)
     """)
-
+    
 tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
 
 
@@ -608,5 +609,6 @@ st.markdown("""
             ※ Llama 3.2 모델은 월간 활성 사용자 7억 명 미만의 서비스에 한해 상업적 사용이 허용됩니다.<br>
             모든 데이터는 로컬 PC에서만 처리됩니다. 외부 서버로 전송되지 않습니다.
         </p>
+        <p> 연락망 : swu.iwantrest@gmail.com </p>
     </div>
     """, unsafe_allow_html=True)
