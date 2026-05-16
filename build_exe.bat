@@ -15,10 +15,14 @@ python -m PyInstaller --noconfirm --onedir --windowed ^
   --add-data "fonts;fonts" ^
   --collect-all streamlit ^
   --collect-all pywebview ^
+  --collect-all tornado ^
+  --collect-all fitz ^
+  --collect-all pptx ^
+  --collect-all langchain_ollama ^
+  --collect-all langchain_core ^
   --hidden-import streamlit.web.cli ^
   --hidden-import streamlit.runtime.scriptrunner ^
   --hidden-import multiprocessing ^
-  --collect-all tornado ^
   desktop_run.py
 
 echo.
