@@ -153,3 +153,8 @@ git push origin v1.0.0
 
 - **Llama 3.2** — [Meta Llama Community License](https://llama.meta.com/llama3/license/)
   월간 활성 사용자 7억 명 미만 서비스에 한해 상업적 사용 허용 © Meta Platforms, Inc.
+
+
+## 문의사항
+싹싹 번역 이용 불편 : [https://forms.gle/QEyvksf7CHGqRzDs9]
+메일 : swu.iwantrest@gmail.com
