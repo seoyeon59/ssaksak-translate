@@ -462,26 +462,88 @@ def wait_for_server(port, timeout=30):
     return False
 
 
-# ── 종료 정리 (#6 해결방안 1+2) ────────────────────
+# ── Ollama 수명 주기 관리 ────────────────────────────
+# 앱이 실행 중일 때만 Ollama를 띄우고, 창 닫으면 같이 종료한다.
+# 이미 다른 방법으로 Ollama가 실행 중이면 간섭하지 않는다.
 _streamlit_proc = None
+_ollama_proc = None       # 우리가 직접 시작한 ollama serve 프로세스
+_we_started_ollama = False
+
+
+def is_ollama_api_ready():
+    """포트 11434에 Ollama API가 응답하는지 확인."""
+    try:
+        urllib.request.urlopen("http://127.0.0.1:11434", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def start_ollama_if_needed(win=None):
+    """Ollama가 실행 중이 아니면 'ollama serve'를 직접 띄운다.
+    이미 실행 중이면 아무것도 하지 않는다."""
+    global _ollama_proc, _we_started_ollama
+
+    if is_ollama_api_ready():
+        _we_started_ollama = False
+        return True
+
+    ollama_exe = find_ollama_executable()
+    if not ollama_exe:
+        return False
+
+    if win:
+        win.update("Ollama 서버 시작 중...")
+
+    _ollama_proc = subprocess.Popen(
+        [ollama_exe, "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=_NO_WINDOW,
+    )
+    _we_started_ollama = True
+
+    for _ in range(30):
+        if is_ollama_api_ready():
+            return True
+        time.sleep(0.5)
+
+    return False
 
 
 def cleanup():
-    """streamlit 자식 프로세스를 명시적으로 종료. atexit / webview closed 양쪽에서 호출."""
-    global _streamlit_proc
+    """Streamlit + (우리가 시작한 경우) Ollama 프로세스 종료.
+    atexit / webview closed 양쪽에서 호출된다."""
+    global _streamlit_proc, _ollama_proc, _we_started_ollama
+
+    # Streamlit 자식 종료
     proc = _streamlit_proc
     _streamlit_proc = None
-    if proc is None:
-        return
-    try:
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(timeout=5)
+    if proc is not None:
+        try:
             if proc.is_alive():
-                proc.kill()
-                proc.join(timeout=2)
-    except Exception:
-        pass
+                proc.terminate()
+                proc.join(timeout=5)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=2)
+        except Exception:
+            pass
+
+    # 우리가 시작한 Ollama만 종료 (기존 서비스엔 손대지 않음)
+    if _we_started_ollama:
+        oproc = _ollama_proc
+        _ollama_proc = None
+        _we_started_ollama = False
+        if oproc is not None and oproc.poll() is None:
+            try:
+                oproc.terminate()
+                oproc.wait(timeout=5)
+            except Exception:
+                try:
+                    oproc.kill()
+                except Exception:
+                    pass
 
 
 # ── 메인 ─────────────────────────────────────────
@@ -503,6 +565,12 @@ def main():
 
     if not ensure_ollama(win):
         win.close()
+        sys.exit(1)
+
+    # Ollama 서버가 떠 있지 않으면 직접 시작 — 창 닫힐 때 같이 종료됨
+    if not start_ollama_if_needed(win):
+        win.close()
+        messagebox.showerror("오류", "Ollama 서버를 시작할 수 없습니다. 재설치 후 다시 실행해주세요.")
         sys.exit(1)
 
     if not ensure_models(win):
