@@ -420,6 +420,13 @@ def _install_token_gate(expected_token):
 
 # ── Streamlit 자식 프로세스 진입점 (multiprocessing, #6 해결방안 3) ──
 def run_streamlit(port):
+    # --windowed 빌드에서 자식 프로세스의 stdout/stderr 가 None 이어서
+    # 예외 발생 시 AttributeError: 'NoneType' object has no attribute 'write' 가 뜸
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, 'w')
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, 'w')
+
     app_path = resource_path('app.py')
 
     if getattr(sys, 'frozen', False):
