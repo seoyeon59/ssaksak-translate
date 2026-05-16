@@ -156,5 +156,5 @@ git push origin v1.0.0
 
 
 ## 문의사항
-싹싹 번역 이용 불편 : [https://forms.gle/QEyvksf7CHGqRzDs9]
-메일 : swu.iwantrest@gmail.com
+- 싹싹 번역 이용 불편 : [https://forms.gle/QEyvksf7CHGqRzDs9]
+- 메일 : swu.iwantrest@gmail.com
