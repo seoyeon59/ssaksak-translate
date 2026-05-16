@@ -54,9 +54,6 @@ ShowLanguageDialog=auto
 ; LicenseFile=LICENSE.txt   ; LICENSE.txt 추가 시 주석 해제
 ; InfoBeforeFile=README_KR.txt
 
-; ── 최소 OS ──
-MinVersion=10.0   ; Windows 10+
-
 ; ── 압축 해제 후 사이즈 ──
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName} {#MyAppVersion}
