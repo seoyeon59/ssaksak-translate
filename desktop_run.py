@@ -388,7 +388,10 @@ def _install_token_gate(expected_token):
     """
     if not expected_token:
         return
-    import tornado.web
+    try:
+        import tornado.web
+    except ImportError:
+        return
 
     _original_prepare = tornado.web.RequestHandler.prepare
 

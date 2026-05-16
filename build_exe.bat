@@ -18,6 +18,10 @@ python -m PyInstaller --noconfirm --onedir --windowed ^
   --hidden-import streamlit.web.cli ^
   --hidden-import streamlit.runtime.scriptrunner ^
   --hidden-import multiprocessing ^
+  --hidden-import tornado ^
+  --hidden-import tornado.web ^
+  --hidden-import tornado.httpserver ^
+  --hidden-import tornado.ioloop ^
   desktop_run.py
 
 echo.
