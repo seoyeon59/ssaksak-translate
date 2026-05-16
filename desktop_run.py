@@ -31,37 +31,7 @@ def _patch_streamlit_signal():
 _patch_streamlit_signal()
 
 
-# ── 설정 파일 ─────────────────────────────────────
-CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".ssaksak")
-CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
-STATUS_PATH = os.path.join(CONFIG_DIR, "setup_status.json")
-
-def load_config():
-    try:
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def save_config(data):
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f)
-
-def write_status(status, message, progress=0):
-    os.makedirs(CONFIG_DIR, exist_ok=True)
-    try:
-        with open(STATUS_PATH, "w", encoding="utf-8") as f:
-            json.dump({"status": status, "message": message, "progress": progress}, f)
-    except Exception:
-        pass
-
-
-# ── subprocess 창 숨김 (Windows) ─────────────────
-_NO_WINDOW = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
-
-
-# ── 경로 유틸 ─────────────────────────────────────
+# ── 경로 유틸 ────────────────────────────────────
 def resource_path(relative_path):
     if getattr(sys, 'frozen', False):
         base_path = sys._MEIPASS
@@ -269,18 +239,6 @@ def ensure_ollama(win):
     if find_ollama_executable():
         win.update("[OK] Ollama 이미 설치됨")
         return True
-    candidates = [
-        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
-        os.path.join(os.environ.get("APPDATA", ""), "Programs", "Ollama"),
-        os.path.join(os.path.expanduser("~"), "AppData", "Local", "Programs", "Ollama"),
-        r"C:\Program Files\Ollama",
-        r"C:\Program Files (x86)\Ollama",
-    ]
-    for folder in candidates:
-        if os.path.exists(os.path.join(folder, "ollama.exe")):
-            os.environ["PATH"] = folder + ";" + os.environ.get("PATH", "")
-            return True
-    return False
 
     installer_path = os.path.join(os.environ.get("TEMP", "."), "ollama-setup.exe")
     try:
@@ -353,7 +311,7 @@ def ensure_models(win):
         )
         installed = result.stdout
     except Exception:
-        update_ui(-1, "Ollama 실행 실패\nOllama가 정상 설치됐는지 확인해주세요.")
+        messagebox.showerror("오류", "Ollama 실행 실패. Ollama가 정상 설치됐는지 확인해주세요.")
         return False
 
     pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
@@ -504,26 +462,88 @@ def wait_for_server(port, timeout=30):
     return False
 
 
-# ── 종료 정리 (#6 해결방안 1+2) ────────────────────
+# ── Ollama 수명 주기 관리 ────────────────────────────
+# 앱이 실행 중일 때만 Ollama를 띄우고, 창 닫으면 같이 종료한다.
+# 이미 다른 방법으로 Ollama가 실행 중이면 간섭하지 않는다.
 _streamlit_proc = None
+_ollama_proc = None       # 우리가 직접 시작한 ollama serve 프로세스
+_we_started_ollama = False
+
+
+def is_ollama_api_ready():
+    """포트 11434에 Ollama API가 응답하는지 확인."""
+    try:
+        urllib.request.urlopen("http://127.0.0.1:11434", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def start_ollama_if_needed(win=None):
+    """Ollama가 실행 중이 아니면 'ollama serve'를 직접 띄운다.
+    이미 실행 중이면 아무것도 하지 않는다."""
+    global _ollama_proc, _we_started_ollama
+
+    if is_ollama_api_ready():
+        _we_started_ollama = False
+        return True
+
+    ollama_exe = find_ollama_executable()
+    if not ollama_exe:
+        return False
+
+    if win:
+        win.update("Ollama 서버 시작 중...")
+
+    _ollama_proc = subprocess.Popen(
+        [ollama_exe, "serve"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=_NO_WINDOW,
+    )
+    _we_started_ollama = True
+
+    for _ in range(30):
+        if is_ollama_api_ready():
+            return True
+        time.sleep(0.5)
+
+    return False
 
 
 def cleanup():
-    """streamlit 자식 프로세스를 명시적으로 종료. atexit / webview closed 양쪽에서 호출."""
-    global _streamlit_proc
+    """Streamlit + (우리가 시작한 경우) Ollama 프로세스 종료.
+    atexit / webview closed 양쪽에서 호출된다."""
+    global _streamlit_proc, _ollama_proc, _we_started_ollama
+
+    # Streamlit 자식 종료
     proc = _streamlit_proc
     _streamlit_proc = None
-    if proc is None:
-        return
-    try:
-        if proc.is_alive():
-            proc.terminate()
-            proc.join(timeout=5)
+    if proc is not None:
+        try:
             if proc.is_alive():
-                proc.kill()
-                proc.join(timeout=2)
-    except Exception:
-        pass
+                proc.terminate()
+                proc.join(timeout=5)
+                if proc.is_alive():
+                    proc.kill()
+                    proc.join(timeout=2)
+        except Exception:
+            pass
+
+    # 우리가 시작한 Ollama만 종료 (기존 서비스엔 손대지 않음)
+    if _we_started_ollama:
+        oproc = _ollama_proc
+        _ollama_proc = None
+        _we_started_ollama = False
+        if oproc is not None and oproc.poll() is None:
+            try:
+                oproc.terminate()
+                oproc.wait(timeout=5)
+            except Exception:
+                try:
+                    oproc.kill()
+                except Exception:
+                    pass
 
 
 # ── 메인 ─────────────────────────────────────────
@@ -543,116 +563,24 @@ def main():
     # 1. 설치 팝업
     win = SetupWindow()
 
-    # 창 가운데 정렬
-    root.update_idletasks()
-    sw = root.winfo_screenwidth()
-    sh = root.winfo_screenheight()
-    x = (sw - 480) // 2
-    y = (sh - 300) // 2
-    root.geometry(f"480x300+{x}+{y}")
+    if not ensure_ollama(win):
+        win.close()
+        sys.exit(1)
 
-    # 아이콘 설정 (있을 경우)
-    try:
-        icon_path = resource_path("icon.ico")
-        if os.path.exists(icon_path):
-            root.iconbitmap(icon_path)
-    except Exception:
-        pass
+    # Ollama 서버가 떠 있지 않으면 직접 시작 — 창 닫힐 때 같이 종료됨
+    if not start_ollama_if_needed(win):
+        win.close()
+        messagebox.showerror("오류", "Ollama 서버를 시작할 수 없습니다. 재설치 후 다시 실행해주세요.")
+        sys.exit(1)
 
-    # UI 요소
-    tk.Label(root, text="⚙️  싹싹번역 초기 설정 중...",
-             font=("맑은 고딕", 14, "bold"), bg="#f0f4ff", fg="#1e3a8a").pack(pady=(30, 6))
+    if not ensure_models(win):
+        win.close()
+        sys.exit(1)
 
-    tk.Label(root, text="최초 1회 설정입니다. 완료되면 자동으로 번역 앱이 열립니다.",
-             font=("맑은 고딕", 9), bg="#f0f4ff", fg="#555").pack(pady=(0, 20))
+    win.update("앱 서버 시작 중...")
 
-    progress_var = tk.DoubleVar(value=0)
-    style = ttk.Style()
-    style.theme_use("clam")
-    style.configure("blue.Horizontal.TProgressbar",
-                    troughcolor="#dde6f7", background="#3b82f6",
-                    thickness=18)
-    bar = ttk.Progressbar(root, variable=progress_var, maximum=100,
-                          length=400, style="blue.Horizontal.TProgressbar")
-    bar.pack(pady=(0, 12))
-
-    msg_var = tk.StringVar(value="초기화 중...")
-    msg_label = tk.Label(root, textvariable=msg_var,
-                         font=("맑은 고딕", 9), bg="#f0f4ff", fg="#333",
-                         wraplength=440, justify="center")
-    msg_label.pack()
-
-    note = tk.Label(root,
-                    text="ℹ  이 창을 닫아도 설치는 계속 진행되지 않습니다.\n     창이 열려 있는 동안 설치가 진행됩니다.",
-                    font=("맑은 고딕", 8), bg="#e8f0fe", fg="#3b4a6b",
-                    justify="center", pady=6)
-    note.pack(side="bottom", fill="x")
-
-    # 상태 업데이트 함수 (스레드에서 호출)
-    def update_ui(progress, message):
-        write_status("installing" if progress >= 0 else "error", message, max(progress, 0))
-        root.after(0, lambda: _apply(progress, message))
-
-    def _apply(progress, message):
-        if progress >= 0:
-            progress_var.set(progress)
-            msg_var.set(message)
-        else:
-            msg_var.set("❌ " + message)
-            progress_var.set(0)
-
-    # 설치 완료 시 창 닫고 브라우저 열기
-    def on_done():
-        write_status("ready", "준비 완료", 100)
-        port = port_holder[0]
-        if port:
-            import webbrowser
-            webbrowser.open(f"http://localhost:{port}")
-        root.destroy()
-
-    def on_error():
-        pass  # 창은 유지 (오류 메시지 보여줌)
-
-    # 설치 작업 스레드
-    def setup_thread():
-        config = load_config()
-        if config.get("setup_complete") and check_all_ready():
-            write_status("ready", "준비 완료", 100)
-            root.after(0, on_done)
-            return
-
-        if not ensure_ollama_bg(update_ui):
-            root.after(0, on_error)
-            return
-        if not ensure_models_bg(update_ui):
-            root.after(0, on_error)
-            return
-
-        config["setup_complete"] = True
-        save_config(config)
-        update_ui(100, "설치 완료! 번역 앱을 시작합니다...")
-        time.sleep(1)
-        root.after(0, on_done)
-
-    threading.Thread(target=setup_thread, daemon=True).start()
-
-    root.mainloop()
-    done_event.set()
-
-
-# ── 메인 ─────────────────────────────────────────
-if __name__ == "__main__":
-    config = load_config()
-    all_ready = config.get("setup_complete") and check_all_ready()
-
+    # 2. 빈 포트 찾기
     port = find_free_port()
-    port_holder = [port]
-
-    # Streamlit 서버 백그라운드 시작
-    t_st = threading.Thread(target=run_streamlit, args=(port,), daemon=True)
-    t_st.start()
-
-    done_event = threading.Event()
 
     # 3. Streamlit을 자식 프로세스로 띄움 — 부모 종료 시 PID 단위 정리 가능
     _streamlit_proc = mp.Process(target=run_streamlit, args=(port,), daemon=True)
