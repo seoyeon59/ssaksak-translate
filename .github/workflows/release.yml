@@ -77,7 +77,7 @@ jobs:
 
       - name: Create ZIP archive
         run: |
-          $zipName = "싹싹번역-${{ steps.version.outputs.version }}-win64.zip"
+          $zipName = "SsakSsak-${{ steps.version.outputs.version }}-win64.zip"
           Compress-Archive -Path dist/SsakSsak/* -DestinationPath $zipName -Force
           Write-Host "Created: $zipName ($((Get-Item $zipName).Length / 1MB) MB)"
         shell: pwsh
@@ -91,10 +91,10 @@ jobs:
       - name: Upload artifacts (always available, even without Release)
         uses: actions/upload-artifact@v4
         with:
-          name: 싹싹번역-${{ steps.version.outputs.version }}
+          name: SsakSsak-${{ steps.version.outputs.version }}
           path: |
-            싹싹번역-*-win64.zip
-            Output/싹싹번역-Setup-*.exe
+            SsakSsak-*-win64.zip
+            Output/SsakSsak-Setup-*.exe
           retention-days: 30
 
       # ── Release 생성 조건: 태그 푸시 OR 수동실행 시 version 입력한 경우 ──
@@ -108,8 +108,8 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            싹싹번역-*-win64.zip
-            Output/싹싹번역-Setup-*.exe
+            SsakSsak-*-win64.zip
+            Output/SsakSsak-Setup-*.exe
           body: |
             ## 다운로드
 

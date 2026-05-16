@@ -41,7 +41,7 @@ PrivilegesRequiredOverridesAllowed=dialog
 
 ; ── 출력 ──
 OutputDir=Output
-OutputBaseFilename=싹싹번역-Setup-{#MyAppVersion}
+OutputBaseFilename=SsakSsak-Setup-{#MyAppVersion}
 SetupIconFile=icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
