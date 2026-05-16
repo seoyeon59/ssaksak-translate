@@ -1,13 +1,26 @@
 import sys
 import os
-import json
-import threading
+import re
 import time
+import atexit
+import secrets
+import shutil
+import socket
 import subprocess
 import urllib.request
+import urllib.error
+import multiprocessing as mp
+import platform
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+IS_WINDOWS = platform.system() == "Windows"
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
 
 
-# ── Streamlit signal 핸들러 패치 ──────────────────
+# ── Streamlit signal 핸들러 패치 (multiprocessing 자식에서도 안전) ──
 def _patch_streamlit_signal():
     try:
         import streamlit.web.bootstrap as _bootstrap
@@ -57,10 +70,204 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-# ── Ollama 탐색 ───────────────────────────────────
-def find_ollama_exe():
-    import shutil
-    if shutil.which("ollama"):
+# ── 설정 ─────────────────────────────────────────
+OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
+OLLAMA_DOWNLOAD_PAGE = "https://ollama.com/download"
+NETWORK_TIMEOUT = 30          # 단일 read/connect 타임아웃 (초)
+NETWORK_RETRIES = 3           # 다운로드/풀 재시도 횟수
+MODEL_PULL_HARD_TIMEOUT = 60 * 60  # 모델 1개당 최대 1시간
+
+
+# ── 시작 시 잔재 파일 청소 (#2 해결방안 3) ──────────
+def cleanup_old_artifacts(days=7):
+    """%TEMP%의 ollama-setup* 잔재를 즉시 삭제(파일 잠금 시 무시)."""
+    temp_dir = os.environ.get("TEMP")
+    if not temp_dir or not os.path.isdir(temp_dir):
+        return
+    for fname in os.listdir(temp_dir):
+        if fname.lower().startswith("ollama-setup"):
+            try:
+                os.remove(os.path.join(temp_dir, fname))
+            except OSError:
+                pass
+
+
+# ── 진행 상황 팝업 창 ─────────────────────────────
+class SetupWindow:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("싹싹번역 시작 중...")
+        self.root.geometry("460x180")
+        self.root.resizable(False, False)
+        self.root.attributes('-topmost', True)
+
+        tk.Label(self.root, text="싹싹번역 준비 중입니다...",
+                 font=("맑은 고딕", 11, "bold")).pack(pady=(20, 8))
+        self.label = tk.Label(self.root, text="초기화 중...", font=("맑은 고딕", 9))
+        self.label.pack()
+        self.bar = ttk.Progressbar(self.root, length=400, mode='indeterminate')
+        self.bar.pack(pady=10)
+        self.bar.start(10)
+        self._mode = 'indeterminate'
+        self.root.update()
+
+    def update(self, msg, percent=None):
+        self.label.config(text=msg)
+        if percent is None:
+            if self._mode != 'indeterminate':
+                self.bar.stop()
+                self.bar.config(mode='indeterminate', maximum=100)
+                self.bar.start(10)
+                self._mode = 'indeterminate'
+        else:
+            if self._mode != 'determinate':
+                self.bar.stop()
+                self.bar.config(mode='determinate', maximum=100)
+                self._mode = 'determinate'
+            self.bar['value'] = max(0, min(100, percent))
+        self.root.update()
+
+    def close(self):
+        try:
+            self.bar.stop()
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
+
+# ── 네트워크: 타임아웃 + 재시도 + 이어받기 + 진행률 (#8 해결방안 1+2+3) ──
+def download_with_resume(url, dest_path, win=None, label_prefix=""):
+    """Range 헤더로 이어받기 가능한 다운로더. 재시도/타임아웃/실시간 진행률 지원."""
+    last_err = None
+    for attempt in range(1, NETWORK_RETRIES + 1):
+        try:
+            existing = os.path.getsize(dest_path) if os.path.exists(dest_path) else 0
+            req = urllib.request.Request(url)
+            if existing > 0:
+                req.add_header("Range", f"bytes={existing}-")
+            with urllib.request.urlopen(req, timeout=NETWORK_TIMEOUT) as resp:
+                # 서버가 Range 요청을 수락(206)했는지 확인
+                resumed = (resp.status == 206 and existing > 0)
+                content_length = resp.getheader("Content-Length")
+                total = (existing if resumed else 0) + (int(content_length) if content_length else 0)
+
+                mode = "ab" if resumed else "wb"
+                if not resumed:
+                    existing = 0
+                downloaded = existing
+
+                last_pct = -1
+                with open(dest_path, mode) as f:
+                    while True:
+                        buf = resp.read(64 * 1024)
+                        if not buf:
+                            break
+                        f.write(buf)
+                        downloaded += len(buf)
+                        if win and total > 0:
+                            pct = downloaded * 100.0 / total
+                            if int(pct) != last_pct:
+                                mb_done = downloaded / (1024 * 1024)
+                                mb_total = total / (1024 * 1024)
+                                win.update(
+                                    f"{label_prefix} {mb_done:.1f}/{mb_total:.1f} MB ({pct:.0f}%)",
+                                    percent=pct,
+                                )
+                                last_pct = int(pct)
+            return True
+        except (urllib.error.URLError, socket.timeout, ConnectionError, TimeoutError, OSError) as e:
+            last_err = e
+            if win:
+                win.update(f"{label_prefix} 재시도 {attempt}/{NETWORK_RETRIES}... ({e})")
+            time.sleep(min(2 * attempt, 10))
+    raise RuntimeError(f"다운로드 실패({NETWORK_RETRIES}회 재시도): {last_err}")
+
+
+# ── Ollama 실행 파일 찾기 (PATH 비의존, #7 해결방안 2) ──
+def find_ollama_executable():
+    found = shutil.which("ollama")
+    if found:
+        return found
+    candidates = []
+    for var in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
+        base = os.environ.get(var)
+        if base:
+            candidates.append(os.path.join(base, "Programs", "Ollama", "ollama.exe"))
+            candidates.append(os.path.join(base, "Ollama", "ollama.exe"))
+    candidates.append(os.path.expanduser(r"~\AppData\Local\Programs\Ollama\ollama.exe"))
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+# ── UAC 권한 상승으로 인스톨러 실행 (#7 해결방안 1) ──
+def run_installer_elevated(installer_path):
+    """ShellExecuteW(runas)로 UAC 동의를 받고 /VERYSILENT로 무인 설치. 종료까지 대기."""
+    if not IS_WINDOWS:
+        raise OSError("이 기능은 Windows 전용입니다.")
+
+    SEE_MASK_NOCLOSEPROCESS = 0x00000040
+    SEE_MASK_NOASYNC = 0x00000100
+
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("fMask", ctypes.c_ulong),
+            ("hwnd", wintypes.HWND),
+            ("lpVerb", wintypes.LPCWSTR),
+            ("lpFile", wintypes.LPCWSTR),
+            ("lpParameters", wintypes.LPCWSTR),
+            ("lpDirectory", wintypes.LPCWSTR),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", wintypes.HINSTANCE),
+            ("lpIDList", ctypes.c_void_p),
+            ("lpClass", wintypes.LPCWSTR),
+            ("hkeyClass", wintypes.HKEY),
+            ("dwHotKey", wintypes.DWORD),
+            ("hIconOrMonitor", wintypes.HANDLE),
+            ("hProcess", wintypes.HANDLE),
+        ]
+
+    sei = SHELLEXECUTEINFOW()
+    sei.cbSize = ctypes.sizeof(sei)
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC
+    sei.lpVerb = "runas"
+    sei.lpFile = installer_path
+    # Inno Setup 옵션: 완전 무인 + 메시지박스 억제 + 재부팅 안 함
+    sei.lpParameters = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+    sei.nShow = 1
+
+    ShellExecuteExW = ctypes.windll.shell32.ShellExecuteExW
+    ShellExecuteExW.argtypes = [ctypes.POINTER(SHELLEXECUTEINFOW)]
+    ShellExecuteExW.restype = wintypes.BOOL
+
+    if not ShellExecuteExW(ctypes.byref(sei)):
+        raise OSError(f"ShellExecuteExW 실패 (errno={ctypes.get_last_error()})")
+
+    if sei.hProcess:
+        ctypes.windll.kernel32.WaitForSingleObject(sei.hProcess, 0xFFFFFFFF)
+        ctypes.windll.kernel32.CloseHandle(sei.hProcess)
+
+
+def _open_url(url):
+    try:
+        if IS_WINDOWS:
+            os.startfile(url)
+        else:
+            subprocess.Popen(["xdg-open", url])
+    except Exception:
+        pass
+
+
+# ── Ollama 확인 및 설치 ───────────────────────────
+def ensure_ollama(win):
+    win.update("Ollama 확인 중...")
+    if find_ollama_executable():
+        win.update("[OK] Ollama 이미 설치됨")
         return True
     candidates = [
         os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama"),
@@ -75,141 +282,182 @@ def find_ollama_exe():
             return True
     return False
 
-
-# ── Ollama 설치 ───────────────────────────────────
-def ensure_ollama_bg(update_ui):
-    update_ui(5, "Ollama 확인 중...")
-    if find_ollama_exe():
-        update_ui(20, "Ollama 확인 완료 ✅")
-        return True
-
-    update_ui(10, "Ollama 다운로드 중... (잠시 기다려주세요)")
     installer_path = os.path.join(os.environ.get("TEMP", "."), "ollama-setup.exe")
     try:
-        def _reporthook(block_count, block_size, total_size):
-            if total_size > 0:
-                downloaded = block_count * block_size
-                pct = min(downloaded / total_size * 100, 100)
-                mb_done = downloaded / 1024 / 1024
-                mb_total = total_size / 1024 / 1024
-                # 전체 progress 10~18% 구간에 매핑
-                mapped = 10 + pct * 0.08
-                update_ui(mapped, f"Ollama 다운로드 중... {mb_done:.0f} / {mb_total:.0f} MB ({pct:.0f}%)")
-
-        urllib.request.urlretrieve("https://ollama.com/download/OllamaSetup.exe", installer_path, _reporthook)
-        update_ui(15, "Ollama 설치 중...")
-        subprocess.run([installer_path, "/silent"], check=True, creationflags=_NO_WINDOW)
-        time.sleep(10)
+        win.update("Ollama 다운로드 중... (약 수십 MB)")
         try:
-            os.remove(installer_path)
-        except Exception:
-            pass
-
-        try:
-            new_path = subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "[System.Environment]::GetEnvironmentVariable('PATH','Machine')"],
-                capture_output=True, text=True, creationflags=_NO_WINDOW
-            ).stdout.strip()
-            os.environ["PATH"] = new_path + ";" + os.environ.get("PATH", "")
-        except Exception:
-            pass
-
-        if find_ollama_exe():
-            update_ui(20, "Ollama 설치 완료 ✅")
-            return True
-        else:
-            update_ui(-1, "Ollama 설치 후 인식 실패\n앱을 닫고 다시 실행해주세요.")
+            download_with_resume(
+                OLLAMA_INSTALLER_URL, installer_path,
+                win=win, label_prefix="Ollama 다운로드",
+            )
+        except Exception as e:
+            # #7 해결방안 3: 명확한 안내 + 다운로드 페이지 열기
+            messagebox.showerror(
+                "Ollama 다운로드 실패",
+                f"자동 다운로드에 {NETWORK_RETRIES}회 재시도 후 실패했습니다.\n\n"
+                f"오류: {e}\n\n"
+                f"브라우저로 직접 받아 설치한 뒤 SsakSsak.exe를 다시 실행해 주세요.\n"
+                f"{OLLAMA_DOWNLOAD_PAGE}"
+            )
+            _open_url(OLLAMA_DOWNLOAD_PAGE)
             return False
-    except Exception as e:
-        update_ui(-1,
-            f"Ollama 자동 설치 실패\n"
-            f"https://ollama.com 에서 직접 설치 후 재실행해주세요.\n(오류: {e})")
+
+        win.update("Ollama 설치 중... (UAC 권한 동의가 필요합니다)")
+        try:
+            run_installer_elevated(installer_path)
+        except Exception as e:
+            messagebox.showerror(
+                "Ollama 설치 실패",
+                f"인스톨러 실행에 실패했습니다.\n\n"
+                f"오류: {e}\n\n"
+                f"수동으로 설치해주세요:\n"
+                f"  1) 다음 파일을 직접 실행: {installer_path}\n"
+                f"  2) 또는 다운로드 페이지에서 받기: {OLLAMA_DOWNLOAD_PAGE}\n\n"
+                f"설치 후 SsakSsak.exe를 다시 실행해주세요."
+            )
+            _open_url(OLLAMA_DOWNLOAD_PAGE)
+            return False
+
+        time.sleep(3)
+        if find_ollama_executable():
+            win.update("[OK] Ollama 설치 완료")
+            return True
+
+        messagebox.showerror(
+            "Ollama 인식 실패",
+            "Ollama를 설치했지만 실행 파일을 찾지 못했습니다.\n"
+            "PC를 한 번 재부팅한 뒤 SsakSsak.exe를 다시 실행해주세요."
+        )
         return False
+    finally:
+        # #2 해결방안 2: try/finally로 인스톨러 잔여물 항상 삭제
+        if os.path.exists(installer_path):
+            try:
+                os.remove(installer_path)
+            except OSError:
+                pass
 
 
-# ── 모델 확인 및 다운로드 ─────────────────────────
-def ensure_models_bg(update_ui):
-    preload = ["qwen2.5:3b", "llama3.2:3b"]
+# ── 모델 확인 및 다운로드 (진행률 + 재시도, #8 해결방안 3) ──
+_NO_WINDOW = 0x08000000 if IS_WINDOWS else 0
+
+
+def ensure_models(win):
+    preload = ["llama3.2:3b"]
+    ollama_exe = find_ollama_executable() or "ollama"
     try:
-        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=10, creationflags=_NO_WINDOW)
+        result = subprocess.run(
+            [ollama_exe, "list"],
+            capture_output=True, text=True, timeout=30,
+            creationflags=_NO_WINDOW,
+        )
         installed = result.stdout
     except Exception:
         update_ui(-1, "Ollama 실행 실패\nOllama가 정상 설치됐는지 확인해주세요.")
         return False
 
-    total = len(preload)
-    for idx, model in enumerate(preload):
-        # 이 모델이 차지하는 전체 progress 구간 (30~90%)
-        seg_start = 30 + int((idx / total) * 60)
-        seg_end   = 30 + int(((idx + 1) / total) * 60)
+    pct_re = re.compile(r"(\d+(?:\.\d+)?)\s*%")
 
-        if model not in installed:
-            update_ui(seg_start,
-                f"[{idx+1}/{total}] {model} 다운로드 준비 중...\n"
-                f"(최초 1회, 약 2GB — 인터넷 속도에 따라 10~20분 소요)")
+    for model in preload:
+        if model in installed:
+            win.update(f"[OK] {model} 이미 설치됨")
+            time.sleep(0.3)
+            continue
 
-            proc = subprocess.Popen(
-                ["ollama", "pull", model],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                creationflags=_NO_WINDOW,
+        win.update(f"{model} 다운로드 중... (최초 1회, 약 2GB)")
+        success = False
+        for attempt in range(1, NETWORK_RETRIES + 1):
+            proc = None
+            try:
+                proc = subprocess.Popen(
+                    [ollama_exe, "pull", model],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="ignore",
+                    bufsize=1,
+                    creationflags=_NO_WINDOW,
+                )
+                last_pct = -1
+                start_time = time.time()
+                for line in proc.stdout:
+                    if time.time() - start_time > MODEL_PULL_HARD_TIMEOUT:
+                        proc.kill()
+                        raise TimeoutError("모델 다운로드 1시간 초과")
+                    line = line.strip()
+                    if not line:
+                        continue
+                    m = pct_re.search(line)
+                    if m:
+                        pct = float(m.group(1))
+                        if int(pct) != last_pct:
+                            win.update(f"{model} 다운로드 {pct:.0f}%", percent=pct)
+                            last_pct = int(pct)
+                    else:
+                        win.update(f"{model}: {line[:60]}")
+                proc.wait(timeout=60)
+                if proc.returncode == 0:
+                    success = True
+                    break
+                win.update(f"{model} 재시도 {attempt}/{NETWORK_RETRIES} (exit={proc.returncode})")
+            except (subprocess.TimeoutExpired, TimeoutError) as e:
+                if proc and proc.poll() is None:
+                    proc.kill()
+                win.update(f"{model} 타임아웃, 재시도 {attempt}/{NETWORK_RETRIES}: {e}")
+            except Exception as e:
+                if proc and proc.poll() is None:
+                    proc.kill()
+                win.update(f"{model} 오류, 재시도 {attempt}/{NETWORK_RETRIES}: {e}")
+            time.sleep(min(2 * attempt, 10))
+
+        if not success:
+            messagebox.showerror(
+                "모델 다운로드 실패",
+                f"{model} 다운로드에 {NETWORK_RETRIES}회 재시도했지만 실패했습니다.\n"
+                "네트워크 상태를 확인하고 SsakSsak.exe를 다시 실행해주세요."
             )
-
-            buf = ""
-            for chunk in iter(lambda: proc.stdout.read(64), ""):
-                buf += chunk
-                # \r 또는 \n 기준으로 마지막 줄 추출
-                lines = buf.replace("\r", "\n").split("\n")
-                buf = lines[-1]
-                last = ""
-                for line in reversed(lines[:-1]):
-                    if line.strip():
-                        last = line.strip()
-                        break
-                if not last:
-                    continue
-
-                # "pulling xxxx...  45% ▕...▏  876 MB/1.9 GB  25 MB/s  41s" 파싱
-                import re
-                m = re.search(r"(\d+)%.*?([\d.]+\s*\w+)\s*/\s*([\d.]+\s*\w+)", last)
-                if m:
-                    pct = int(m.group(1))
-                    done_str = m.group(2)
-                    total_str = m.group(3)
-                    mapped = seg_start + (pct / 100) * (seg_end - seg_start)
-                    update_ui(mapped,
-                        f"[{idx+1}/{total}] {model} 다운로드 중...\n"
-                        f"{done_str} / {total_str}  ({pct}%)")
-                elif "verifying" in last.lower():
-                    update_ui(seg_end - 1, f"[{idx+1}/{total}] {model} 검증 중...")
-                elif "writing" in last.lower() or "success" in last.lower():
-                    update_ui(seg_end, f"[{idx+1}/{total}] {model} 설치 완료 ✅")
-
-            proc.wait()
-        else:
-            update_ui(seg_end, f"[{idx+1}/{total}] {model} 확인 완료 ✅")
-
-        time.sleep(0.3)
+            return False
     return True
 
 
-# ── 빠른 준비 확인 ────────────────────────────────
-def check_all_ready():
-    if not find_ollama_exe():
-        return False
-    try:
-        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=5, creationflags=_NO_WINDOW)
-        installed = result.stdout
-        return all(m in installed for m in ["qwen2.5:3b", "llama3.2:3b"])
-    except Exception:
-        return False
+AUTH_COOKIE_NAME = "ssaksak_auth"
+AUTH_QUERY_NAME = "token"
 
 
-# ── Streamlit 실행 ────────────────────────────────
+def _install_token_gate(expected_token):
+    """Tornado RequestHandler.prepare를 패치해 토큰 게이트 적용.
+    - 첫 진입: ?token=xxx → 일치하면 쿠키 발급
+    - 이후: 쿠키만으로 통과
+    - 둘 다 없으면 403
+    """
+    if not expected_token:
+        return
+    import tornado.web
+
+    _original_prepare = tornado.web.RequestHandler.prepare
+
+    def _auth_prepare(self):
+        try:
+            query_token = self.get_query_argument(AUTH_QUERY_NAME, default=None)
+        except Exception:
+            query_token = None
+        if query_token == expected_token:
+            self.set_cookie(
+                AUTH_COOKIE_NAME, expected_token,
+                httponly=True, samesite="Strict",
+            )
+            return _original_prepare(self)
+        if self.get_cookie(AUTH_COOKIE_NAME) == expected_token:
+            return _original_prepare(self)
+        # 헬스체크/스타트업 핑은 허용 (서버 살아있는지 외부에서 확인 가능)
+        if self.request.path in ("/_stcore/health", "/healthz"):
+            return _original_prepare(self)
+        self.set_status(403)
+        self.finish("Forbidden")
+        return None
+
+    tornado.web.RequestHandler.prepare = _auth_prepare
+
+
+# ── Streamlit 자식 프로세스 진입점 (multiprocessing, #6 해결방안 3) ──
 def run_streamlit(port):
     app_path = resource_path('app.py')
 
@@ -217,13 +465,17 @@ def run_streamlit(port):
         static_path = resource_path(os.path.join('streamlit', 'static'))
         os.environ['STREAMLIT_STATIC_PATH'] = static_path
 
+    # 토큰 게이트 설치 — streamlit이 Tornado 핸들러를 만들기 전에 RequestHandler를 패치
+    _install_token_gate(os.environ.get("SSAKSSAK_TOKEN", ""))
+
     sys.argv = [
         "streamlit", "run", app_path,
         "--global.developmentMode=false",
         "--server.headless=true",
         f"--server.port={port}",
+        # #5 해결방안 1: 루프백만 바인딩 + XSRF 보호 ON (enableXsrfProtection 옵션 제거 = 기본값 true)
+        "--server.address=127.0.0.1",
         "--server.enableCORS=false",
-        "--server.enableXsrfProtection=false",
         "--server.fileWatcherType=none",
     ]
     from streamlit.web import cli as stcli
@@ -231,32 +483,65 @@ def run_streamlit(port):
 
 
 def find_free_port():
-    import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
+        s.bind(('127.0.0.1', 0))
         return s.getsockname()[1]
 
 
 def wait_for_server(port, timeout=30):
+    token = os.environ.get("SSAKSSAK_TOKEN", "")
+    url = f"http://127.0.0.1:{port}/?{AUTH_QUERY_NAME}={token}" if token else f"http://127.0.0.1:{port}"
     for _ in range(timeout * 2):
         try:
-            urllib.request.urlopen(f"http://localhost:{port}", timeout=1)
+            urllib.request.urlopen(url, timeout=1)
             return True
+        except urllib.error.HTTPError as e:
+            # 4xx 라도 응답이 왔다면 서버는 살아있음
+            if e.code in (200, 401, 403):
+                return True
         except Exception:
             time.sleep(0.5)
     return False
 
 
-# ── 설치 진행 tkinter 창 ──────────────────────────
-def run_setup_window(port_holder, done_event):
-    import tkinter as tk
-    from tkinter import ttk
+# ── 종료 정리 (#6 해결방안 1+2) ────────────────────
+_streamlit_proc = None
 
-    root = tk.Tk()
-    root.title("싹싹번역 초기 설정")
-    root.geometry("480x300")
-    root.resizable(False, False)
-    root.configure(bg="#f0f4ff")
+
+def cleanup():
+    """streamlit 자식 프로세스를 명시적으로 종료. atexit / webview closed 양쪽에서 호출."""
+    global _streamlit_proc
+    proc = _streamlit_proc
+    _streamlit_proc = None
+    if proc is None:
+        return
+    try:
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(timeout=5)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(timeout=2)
+    except Exception:
+        pass
+
+
+# ── 메인 ─────────────────────────────────────────
+def main():
+    global _streamlit_proc
+
+    # #6 해결방안 2: 어떤 경로로 종료되든 cleanup 보장
+    atexit.register(cleanup)
+
+    # 0. #2 해결방안 3: 시작 시 %TEMP%의 ollama-setup* 잔재 청소
+    cleanup_old_artifacts()
+
+    # #5 해결방안 (a): 시작마다 새 랜덤 토큰을 환경변수로 자식 프로세스에 전달
+    # 같은 PC의 다른 프로세스가 localhost:port를 두드려도 토큰 없이는 403
+    os.environ["SSAKSSAK_TOKEN"] = secrets.token_urlsafe(32)
+
+    # 1. 설치 팝업
+    win = SetupWindow()
 
     # 창 가운데 정렬
     root.update_idletasks()
@@ -369,23 +654,38 @@ if __name__ == "__main__":
 
     done_event = threading.Event()
 
-    if all_ready:
-        # 설치 완료 상태 → 서버 준비되면 바로 브라우저 열기
-        write_status("ready", "준비 완료", 100)
-        wait_for_server(port, timeout=30)
-        import webbrowser
-        webbrowser.open(f"http://localhost:{port}")
-    else:
-        # 미설치 → tkinter 설치 창 표시 (서버와 병렬 진행)
-        threading.Thread(
-            target=lambda: (wait_for_server(port, timeout=60)),
-            daemon=True
-        ).start()
-        run_setup_window(port_holder, done_event)
+    # 3. Streamlit을 자식 프로세스로 띄움 — 부모 종료 시 PID 단위 정리 가능
+    _streamlit_proc = mp.Process(target=run_streamlit, args=(port,), daemon=True)
+    _streamlit_proc.start()
 
-    # 프로세스 유지
-    try:
-        while t_st.is_alive():
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
+    # 4. 서버 응답 대기
+    if not wait_for_server(port, timeout=30):
+        win.close()
+        cleanup()
+        messagebox.showerror("오류", "서버 시작 실패. 다시 실행해주세요.")
+        sys.exit(1)
+
+    win.close()
+
+    # 5. pywebview로 데스크탑 창 열기 (메인 스레드)
+    # 첫 GET에 토큰 쿼리를 실어서 보냄 → 서버가 쿠키 발급 → 이후 요청은 쿠키만으로 통과
+    import webview
+    token = os.environ.get("SSAKSSAK_TOKEN", "")
+    initial_url = f"http://127.0.0.1:{port}/?{AUTH_QUERY_NAME}={token}" if token else f"http://127.0.0.1:{port}"
+    window = webview.create_window(
+        "싹싹번역 - 강의자료 번역기",
+        initial_url,
+        width=1280,
+        height=860,
+        resizable=True,
+    )
+    # #6 해결방안 1: 창이 닫히면 즉시 streamlit 자식 프로세스 종료
+    window.events.closed += cleanup
+    webview.start()
+    cleanup()
+
+
+if __name__ == "__main__":
+    # PyInstaller --onedir + --windowed 환경에서 multiprocessing 동작 보장
+    mp.freeze_support()
+    main()

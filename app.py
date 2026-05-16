@@ -2,7 +2,10 @@ import streamlit as st
 import fitz  # PyMuPDF
 import os
 import re
+import sys
 import json
+import time
+import shutil
 import unicodedata
 import tempfile
 import subprocess
@@ -15,70 +18,7 @@ import platform
 from glossary import DEFAULT_GLOSSARY
 
 # --- [1. 초기 설정] ---
-st.set_page_config(page_title="싹싹번역 - 전공 맞춤형 번역기", layout="wide", page_icon="🌿")
-
-# ── 설치 상태 확인 (Ollama/모델 설치 완료 전까지 앱 실행 차단) ──────────
-_SETUP_STATUS_PATH = os.path.join(os.path.expanduser("~"), ".ssaksak", "setup_status.json")
-
-def _get_setup_status():
-    try:
-        with open(_SETUP_STATUS_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"status": "ready", "message": "준비 완료", "progress": 100}
-
-_setup = _get_setup_status()
-
-if _setup.get("status") == "installing":
-    st.markdown("""
-    <div style="text-align:center; padding: 60px 20px 20px;">
-        <div style="font-size:3rem; margin-bottom:16px;">⚙️</div>
-        <h2 style="color:#1e3a8a; margin-bottom:8px;">싹싹번역 초기 설정 중...</h2>
-        <p style="color:#555; margin-bottom:32px;">최초 1회 설정 작업입니다. 완료되면 자동으로 앱이 시작됩니다.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    progress_val = _setup.get("progress", 0)
-    msg = _setup.get("message", "설치 진행 중...")
-    st.progress(progress_val / 100)
-    st.info(f"📦 {msg}")
-
-    if progress_val < 30:
-        st.caption("🔧 Ollama AI 엔진 설치 중입니다...")
-    elif progress_val < 90:
-        st.caption("📥 번역 AI 모델을 다운로드 중입니다. 인터넷 속도에 따라 10~20분 소요될 수 있습니다.")
-    else:
-        st.caption("✅ 거의 다 됐어요! 잠시만 기다려주세요.")
-
-    st.markdown("""
-    <div style="background:#f0f7ff; border:1px solid #bfdbfe; border-radius:10px; padding:16px 20px; margin-top:24px; font-size:0.88rem; color:#3b4a6b;">
-        ℹ️ <b>설치 안내</b><br>
-        이 창을 닫아도 설치는 계속 진행됩니다.<br>
-        설치 완료 후 이 페이지가 자동으로 번역 화면으로 전환됩니다.
-    </div>
-    """, unsafe_allow_html=True)
-
-    time.sleep(2)
-    st.rerun()
-
-elif _setup.get("status") == "error":
-    st.markdown("""
-    <div style="text-align:center; padding: 60px 20px 20px;">
-        <div style="font-size:3rem; margin-bottom:16px;">❌</div>
-        <h2 style="color:#dc2626; margin-bottom:8px;">설치 오류가 발생했습니다</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    st.error(_setup.get("message", "알 수 없는 오류"))
-    st.markdown("""
-    <div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:16px 20px; margin-top:16px; font-size:0.88rem; color:#7c3aed;">
-        💡 <b>해결 방법</b><br>
-        1. <a href="https://ollama.com" target="_blank">https://ollama.com</a> 에서 Ollama를 수동으로 설치해주세요.<br>
-        2. 설치 완료 후 싹싹번역을 다시 실행해주세요.
-    </div>
-    """, unsafe_allow_html=True)
-    st.stop()
-
-# ── 설치 완료 → 정상 앱 진행 ───────────────────────────────────────────
+st.set_page_config(page_title="싹싹번역 - 로컬 전공 번역기", layout="wide", page_icon="🎓")
 
 USER_GLOSSARY_PATH = "user_glossary.json"
 
@@ -94,17 +34,16 @@ def load_user_glossary():
 
 
 def save_user_glossary(data):
-    with open(USER_GLOSSARY_PATH, "w", encoding="utf-8") as f:
+    # 원자적 쓰기: 임시 파일에 쓴 뒤 os.replace로 교체 → 도중 크래시/중복 실행 시 깨짐 방지
+    tmp_path = USER_GLOSSARY_PATH + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, USER_GLOSSARY_PATH)
 
 
-def get_merged_glossary(dept, user_glossary):
-    base = dict(DEFAULT_GLOSSARY.get(dept, {}))
-    base.update(user_glossary.get(dept, {}))
-    return base
-
-
-# 기본 사전과 사용자 사전을 병합하는 로직 강화
+# 기본 사전과 사용자 사전을 병합
 def get_merged_glossary(dept, user_glossary):
     base = dict(DEFAULT_GLOSSARY.get(dept, {}))
     base.update(user_glossary.get(dept, {}))
@@ -119,7 +58,27 @@ if "user_glossary" not in st.session_state:
     st.session_state["user_glossary"] = load_user_glossary()
 
 
+def _font_bundle_dir():
+    """PyInstaller로 frozen된 경우 _MEIPASS, 아니면 스크립트 위치 기준."""
+    if getattr(sys, 'frozen', False):
+        return os.path.join(sys._MEIPASS, "fonts")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+
+
 def get_system_font():
+    # 1) 번들된 폰트 우선 — fonts/ 폴더에 TTF가 있으면 OS 의존성 제거
+    bundled_candidates = [
+        ("NanumGothic.ttf", "NanumGothic"),
+        ("Pretendard-Regular.ttf", "Pretendard"),
+        ("MalgunGothic.ttf", "Malgun Gothic"),
+    ]
+    bundle_dir = _font_bundle_dir()
+    for fname, fontname in bundled_candidates:
+        path = os.path.join(bundle_dir, fname)
+        if os.path.exists(path):
+            return path, fontname
+
+    # 2) OS 기본 폰트 폴백
     os_name = platform.system()
     if os_name == "Windows":
         return "C:/Windows/Fonts/malgun.ttf", "Malgun Gothic"
@@ -130,81 +89,33 @@ def get_system_font():
 
 
 FONT_FILE_PATH, FONT_NAME = get_system_font()
+# 폰트가 정말 존재하는지 시작 시 1회 검증해서 사용자에게 즉시 안내
+if not os.path.exists(FONT_FILE_PATH):
+    st.warning(
+        f"⚠️ 한글 폰트 파일을 찾을 수 없습니다: `{FONT_FILE_PATH}`\n\n"
+        f"`fonts/NanumGothic.ttf` 등 한글 TTF 파일을 프로젝트의 `fonts/` 폴더에 넣어주세요. "
+        f"PDF 번역 결과의 한글이 표시되지 않을 수 있습니다."
+    )
 
 
 # --- [모델 정보] ---
-MODEL_INFO = {
-    "qwen2.5:3b": {
-        "label": "qwen2.5:3b",
-        "ram": "~2GB RAM",
-        "quality": "번역 품질 ★★★★★",
-        "speed": "속도 ★★★★☆",
-        "desc": "Alibaba Qwen2.5 3B. 저사양 환경에서 최고 번역 품질. 강력 추천.",
-        "family": "qwen",
-        "num_predict": 150,
-        "stop": ["\nEnglish:", "\n"],
-    },
-    "llama3.2:3b": {
-        "label": "llama3.2:3b",
-        "ram": "~2GB RAM",
-        "quality": "번역 품질 ★★★★☆",
-        "speed": "속도 ★★★★★",
-        "desc": "Meta Llama 3.2 3B. 가장 가볍고 빠름. 번역 품질도 충분히 좋음.",
-        "family": "llama",
-        "num_predict": 120,
-        "stop": ["\nEnglish:", "\n"],
-    },
-}
+# 사용 모델: Meta Llama 3.2 3B (Llama Community License — 7억 MAU 미만 상업 사용 허용)
+LLM_MODEL_NAME = "llama3.2:3b"
+LLM_NUM_PREDICT = 120
+LLM_STOP_TOKENS = ["\nEnglish:", "\n"]
+LLM_DESCRIPTION = "Meta Llama 3.2 3B · ~2GB RAM · 빠르고 가벼운 로컬 추론"
 
 
 # --- [2. 사이드바 UI] ---
-# 코드 블록 판별 로직 강화 (어셈블리, C언어 패턴 추가)
-def is_code_block(text):
-    code_patterns = [
-        r'#include', r'\bint\s+\w+\s*\(', r'\bvoid\s+\w+\s*\(',
-        r'\bfor\s*\(', r'\bwhile\s*\(', r'\breturn\s+',
-        r'printf\s*\(', r'^\s*//', r'[{};]$',
-        r'->\w+', r'0x[0-9a-fA-F]+', r'\bmov\w*\s+%',
-    ]
-    lines = [l for l in text.split('\n') if l.strip()]
-    if not lines: return False
-    hits = sum(1 for line in lines if any(re.search(p, line) for p in code_patterns))
-    return hits / len(lines) > 0.3  # 30% 이상 코드 패턴이면 코드 블록으로 간주
-
-
-# 과해석 및 사족 제거를 위한 후처리 로직 강화
-def post_process(translated, original):
-    translated = re.sub(r"<think>.*?</think>", "", translated, flags=re.DOTALL).strip()
-    trash_phrases = [
-        r"^here is the translation:?", r"^translated text:?", r"^korean:?",
-        r"^번역\s*:", r"^결과\s*:", r"^해석\s*:", r"^output\s*:"
-    ]
-    for phrase in trash_phrases:
-        translated = re.sub(phrase, "", translated, flags=re.IGNORECASE).strip()
-
-    # 원문과 똑같거나 비어있으면 무시
-    if not translated or translated.lower() == original.lower():
-        return ""
-    return translated
-
-
+# is_code_block / post_process 의 본 정의는 [3. 핵심 유틸리티] 섹션에 있음
 with st.sidebar:
     st.header("⚙️ 엔진 설정")
-    selected_model = st.selectbox(
-        "사용할 AI 모델 선택",
-        list(MODEL_INFO.keys()),
-        index=0,
-        format_func=lambda m: MODEL_INFO[m]["label"],
-    )
-
-    info = MODEL_INFO[selected_model]
-    st.caption(f"{info['ram']} | {info['quality']} | {info['speed']}\n\n{info['desc']}")
+    st.caption(f"**모델:** `{LLM_MODEL_NAME}`\n\n{LLM_DESCRIPTION}")
 
     llm = OllamaLLM(
-        model=selected_model,
+        model=LLM_MODEL_NAME,
         temperature=0,
-        num_predict=MODEL_INFO[selected_model]["num_predict"],
-        timeout=60,  # 60초 타임아웃 (응답 없음 방지)
+        num_predict=LLM_NUM_PREDICT,
     )
 
     st.divider()
@@ -318,18 +229,8 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"파일 읽기 오류: {e}")
 
-    st.divider()
-    if st.button("🧹 번역 캐시 초기화"):
-        st.session_state["translation_cache"] = {}
-        st.session_state["detected_dept"] = None
-        st.success("캐시가 초기화되었습니다.")
-
 
 # --- [3. 핵심 유틸리티] ---
-
-def get_model_family():
-    return MODEL_INFO.get(selected_model, {}).get("family", "llama")
-
 
 def normalize_for_cache(text):
     return re.sub(r"\s+", " ", text.lower().strip())
@@ -445,29 +346,18 @@ def translate_single(text, department):
             st.session_state["translation_cache"][norm_key] = exact
             return exact
 
-    family = get_model_family()
     glossary_hint = build_glossary_hint(glossary, cleaned)
-    stop_param = MODEL_INFO[selected_model]["stop"]
 
-    if family == "qwen":
-        prompt = (
-            f"You are a Korean translator for {department} academic slides.\n"
-            f"Translate the English text into Korean. ONE LINE only. No lists. No explanations.\n"
-            f"{glossary_hint}\n\n"
-            f"English: {cleaned}\n"
-            f"Korean:"
-        )
-    else:
-        prompt = (
-            f"You are a Korean translator for {department} academic slides.\n"
-            f"Translate the English text into Korean. ONE SHORT LINE only. No lists. No explanations. No extra sentences.\n"
-            f"{glossary_hint}\n\n"
-            f"English: {cleaned}\n"
-            f"Korean:"
-        )
+    prompt = (
+        f"You are a Korean translator for {department} academic slides.\n"
+        f"Translate the English text into Korean. ONE SHORT LINE only. No lists. No explanations. No extra sentences.\n"
+        f"{glossary_hint}\n\n"
+        f"English: {cleaned}\n"
+        f"Korean:"
+    )
 
     try:
-        translated = str(llm.invoke(prompt, stop=stop_param)).strip()
+        translated = str(llm.invoke(prompt, stop=LLM_STOP_TOKENS)).strip()
         translated = post_process(translated, cleaned)
         if not translated:
             return ""
@@ -522,6 +412,8 @@ def process_pptx(input_path, output_path, fallback_dept, auto_detect_flag):
 
     prs.save(output_path)
     status_text.text(f"✅ PPT 번역 완료! (전공: {dept})")
+    # 파일 처리 종료 시 캐시 비우기 (메모리 누수 방지)
+    st.session_state["translation_cache"] = {}
 
 
 def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
@@ -576,6 +468,8 @@ def process_pdf(input_path, output_path, fallback_dept, auto_detect_flag):
     doc.save(output_path)
     doc.close()
     status_text.text(f"✅ PDF 번역 완료! (전공: {dept})")
+    # 파일 처리 종료 시 캐시 비우기 (메모리 누수 방지)
+    st.session_state["translation_cache"] = {}
 
 
 # --- [5. 메인 UI] ---
@@ -584,17 +478,16 @@ st.markdown("""<style>
     .stButton button { width: 100%; background-color: #4A90E2 !important; color: white !important; border-radius: 10px; }
 </style>""", unsafe_allow_html=True)
 
-st.title("🌿 싹싹번역 - 전공 맞춤형 강의자료 번역기")
+st.title("🎓 싹싹번역 - 전공 맞춤형 강의자료 번역기")
 
 with st.expander("📖 이용 가이드 및 주의사항", expanded=False):
     st.markdown("""
     1. **로컬 엔진:** Ollama가 실행 중이어야 합니다 (`ollama serve`).
-    2. **모델 선택:** **qwen2.5:3b** (1순위, 번역 품질 최고) 또는 **llama3.2:3b** (2순위, 속도 최고)를 권장합니다.
-    3. **모델 설치:** 앱 시작 시 두 모델이 자동으로 설치됩니다.
-    4. **자동 감지 (기본값 ON):** 파일 첫 페이지를 분석해 전공을 자동 추론합니다.
-    5. **수동 모드:** 자동 감지를 끄면 사이드바에서 직접 전공을 선택합니다.
-    6. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
-    7. **보안:** 모든 데이터는 본인 PC 내에서만 처리됩니다.
+    2. **모델:** Meta **Llama 3.2 3B**를 사용합니다. 앱 시작 시 자동으로 설치됩니다 (최초 1회, 약 2GB).
+    3. **자동 감지 (기본값 ON):** 파일 첫 페이지를 분석해 전공을 자동 추론합니다.
+    4. **수동 모드:** 자동 감지를 끄면 사이드바에서 직접 전공을 선택합니다.
+    5. **용어 사전:** 사이드바에서 전공별 커스텀 용어를 추가·삭제하고 JSON으로 저장할 수 있습니다.
+    6. **보안:** 모든 데이터는 본인 PC 내에서만 처리됩니다.
     """)
 
 tab1, tab2 = st.tabs(["📊 PPT 번역", "📄 PDF 번역"])
@@ -606,13 +499,29 @@ def get_save_path(filename):
     return os.path.join(downloads, f"translated_{filename}")
 
 
-def open_folder(path):
-    if platform.system() == "Windows":
-        os.startfile(path)
-    elif platform.system() == "Darwin":
-        subprocess.Popen(["open", path])
-    else:
-        subprocess.Popen(["xdg-open", path])
+def cleanup_old_translations(days=7):
+    """Downloads 폴더의 오래된 translated_*.pdf/pptx 잔여물 housekeeping (세션당 1회)."""
+    downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+    if not os.path.isdir(downloads):
+        return
+    cutoff = time.time() - days * 86400
+    for fname in os.listdir(downloads):
+        if not fname.startswith("translated_"):
+            continue
+        if not fname.lower().endswith((".pdf", ".pptx")):
+            continue
+        path = os.path.join(downloads, fname)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+        except OSError:
+            continue
+
+
+# 세션당 1회만 실행
+if "cleaned_old_translations" not in st.session_state:
+    cleanup_old_translations()
+    st.session_state["cleaned_old_translations"] = True
 
 
 def run_translation(uploaded_file, mode):
@@ -628,29 +537,42 @@ def run_translation(uploaded_file, mode):
     if uploaded_file:
         if st.button(f"🚀 {mode} 번역 시작"):
             suffix = os.path.splitext(uploaded_file.name)[1]
-            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
-                tmp_in.write(uploaded_file.getvalue())
-                in_path = tmp_in.name
-
             out_filename = f"translated_{uploaded_file.name}"
-            out_path = get_save_path(uploaded_file.name)
+            final_out_path = get_save_path(uploaded_file.name)
 
-            try:
-                with st.spinner(f"{selected_model} 모델 번역 중..."):
-                    if mode == "PPTX":
-                        process_pptx(in_path, out_path, manual_dept, auto_detect)
-                    else:
-                        process_pdf(in_path, out_path, manual_dept, auto_detect)
+            # TemporaryDirectory로 입력/출력 모두 감싸 → 컨텍스트 종료 시 자동 정리
+            with tempfile.TemporaryDirectory(prefix="ssaksak_") as tmp_dir:
+                in_path = os.path.join(tmp_dir, f"input{suffix}")
+                tmp_out_path = os.path.join(tmp_dir, f"output{suffix}")
+                with open(in_path, "wb") as f:
+                    f.write(uploaded_file.getvalue())
 
-                st.session_state[result_key] = {
-                    "out_path": out_path,
-                    "out_filename": out_filename,
-                }
-            except Exception as e:
-                st.error(f"오류 발생: {e}")
-            finally:
-                if os.path.exists(in_path):
-                    os.remove(in_path)
+                try:
+                    with st.spinner(f"{LLM_MODEL_NAME} 모델 번역 중..."):
+                        if mode == "PPTX":
+                            process_pptx(in_path, tmp_out_path, manual_dept, auto_detect)
+                        else:
+                            process_pdf(in_path, tmp_out_path, manual_dept, auto_detect)
+
+                    # 임시 폴더에서 만든 결과만 다운로드 폴더로 복사
+                    shutil.copy2(tmp_out_path, final_out_path)
+
+                    st.success(f"✅ 번역 완료!")
+                    st.info(f"📁 저장 위치: `{final_out_path}`")
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("📂 저장 폴더 열기", key=f"open_{mode}"):
+                            os.startfile(os.path.dirname(final_out_path))
+                    with col2:
+                        # 브라우저 사용자를 위한 다운로드 버튼도 유지
+                        with open(final_out_path, "rb") as f:
+                            st.download_button("💾 직접 다운로드", f,
+                                               file_name=out_filename,
+                                               key=f"dl_{mode}")
+
+                except Exception as e:
+                    st.error(f"오류 발생: {e}")
 
         result = st.session_state.get(result_key)
         if result and os.path.exists(result["out_path"]):
@@ -677,14 +599,12 @@ with tab2:
 
 st.divider()
 st.markdown("""
-    <div style="text-align: center; color: gray; fonts-size: 0.75rem; line-height: 1.8;">
-        <p><b>Built with Qwen</b> · <b>Built with Llama</b> · <b>Built with Meta Llama 3</b></p>
+    <div style="text-align: center; color: gray; font-size: 0.75rem; line-height: 1.8;">
+        <p><b>싹싹번역</b> · <b>Built with Llama</b> · <b>Built with Meta Llama 3</b></p>
         <p>
-            <b>Qwen2.5</b>: Qwen Research License (비상업적/연구·평가 목적) © Alibaba Cloud. All Rights Reserved.<br>
-            <b>Llama 3.2</b>: Llama 3.2 Community License © Meta Platforms, Inc. All Rights Reserved.<br>
+            <b>Llama 3.2</b>: Llama 3.2 Community License © Meta Platforms, Inc. All Rights Reserved.
         </p>
-        <p style="fonts-size: 0.7rem; opacity: 0.75;">
-            ※ Qwen2.5 모델은 비상업적 용도(연구·교육·평가)로만 사용 가능합니다. 상업적 사용 시 Alibaba Cloud에 별도 라이선스를 요청하세요.<br>
+        <p style="font-size: 0.7rem; opacity: 0.75;">
             ※ Llama 3.2 모델은 월간 활성 사용자 7억 명 미만의 서비스에 한해 상업적 사용이 허용됩니다.<br>
             모든 데이터는 로컬 PC에서만 처리됩니다. 외부 서버로 전송되지 않습니다.
         </p>

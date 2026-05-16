@@ -1,12 +1,12 @@
 @echo off
 setlocal enabledelayedexpansion
-title EduTrans
+title SsakSsak
 
 :: bat 파일이 있는 폴더 기준으로 실행 (어디서 더블클릭해도 동작)
 cd /d "%~dp0"
 
 echo ================================================
-echo  EduTrans - AI Lecture Slide Translator
+echo  SsakSsak (싹싹번역) - AI Lecture Slide Translator
 echo ================================================
 echo.
 
@@ -69,24 +69,10 @@ if errorlevel 1 (
 )
 echo.
 
-:: ── 3. 저사양 모델 다운로드 ──────────────────────
-echo [3/4] Checking AI models (pre-installing lightweight models)...
-echo   - qwen2.5:3b  (approx. 2.0GB)
+:: ── 3. AI 모델 다운로드 ──────────────────────
+echo [3/4] Checking AI model...
 echo   - llama3.2:3b (approx. 2.0GB)
 echo.
-
-ollama list 2>nul | findstr /i "qwen2.5:3b" > nul
-if errorlevel 1 (
-    echo Downloading qwen2.5:3b...
-    ollama pull qwen2.5:3b
-    if errorlevel 1 (
-        echo [ERROR] Failed to download qwen2.5:3b.
-        goto :error
-    )
-    echo [OK] qwen2.5:3b ready
-) else (
-    echo [OK] qwen2.5:3b already installed
-)
 
 ollama list 2>nul | findstr /i "llama3.2:3b" > nul
 if errorlevel 1 (
@@ -100,9 +86,6 @@ if errorlevel 1 (
 ) else (
     echo [OK] llama3.2:3b already installed
 )
-
-echo.
-echo   * llama3 (high-spec) will be downloaded automatically when selected in the app.
 echo.
 
 :: ── 4. Python 패키지 설치 ───────────────────────
@@ -117,7 +100,7 @@ echo.
 
 :: ── 앱 실행 ────────────────────────────────────
 echo ================================================
-echo  Ready! Starting EduTrans...
+echo  Ready! Starting SsakSsak (싹싹번역)...
 echo  Close the app window to stop.
 echo ================================================
 echo.

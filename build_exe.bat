@@ -1,10 +1,14 @@
 @echo off
-echo Building EduTrans.exe...
+echo Building SsakSsak.exe...
 
-pip install pyinstaller pywebview > nul
+python -m pip install pyinstaller pywebview > nul
 
-pyinstaller --noconfirm --onedir --windowed ^
-  --name "ssackssack-translate" ^
+REM fonts 폴더가 없으면 빈 폴더라도 만들어 PyInstaller 경고 회피
+if not exist "fonts" mkdir fonts
+
+REM 'pyinstaller' 명령이 PATH에 없을 수 있으므로 python -m PyInstaller 로 호출
+python -m PyInstaller --noconfirm --onedir --windowed ^
+  --name "SsakSsak" ^
   --icon "icon.ico" ^
   --add-data "app.py;." ^
   --add-data "glossary.py;." ^
@@ -13,8 +17,13 @@ pyinstaller --noconfirm --onedir --windowed ^
   --collect-all pywebview ^
   --hidden-import streamlit.web.cli ^
   --hidden-import streamlit.runtime.scriptrunner ^
+  --hidden-import multiprocessing ^
   desktop_run.py
 
 echo.
-echo Build complete! Output: dist\EduTrans\EduTrans.exe
+echo Build complete! Output: dist\SsakSsak\SsakSsak.exe
+echo.
+echo Next steps:
+echo   1) ZIP 배포: dist\SsakSsak\ 폴더를 통째로 압축해서 GitHub Release에 업로드
+echo   2) 설치 마법사: Inno Setup으로 installer.iss 컴파일 → SsakSsak-Setup.exe 생성
 pause
